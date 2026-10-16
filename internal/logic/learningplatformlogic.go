@@ -5,6 +5,7 @@ package logic
 
 import (
 	"context"
+	"fmt"
 
 	"learningplatform/internal/svc"
 	"learningplatform/internal/types"
@@ -27,7 +28,8 @@ func NewLearningplatformLogic(ctx context.Context, svcCtx *svc.ServiceContext) *
 }
 
 func (l *LearningplatformLogic) Learningplatform(req *types.Request) (resp *types.Response, err error) {
-	// todo: add your logic here and delete this line
-
-	return
+	// 业务逻辑：把路径参数 name 拼进返回消息
+	return &types.Response{
+		Message: fmt.Sprintf("Hello, %s!", req.Name),
+	}, nil
 }

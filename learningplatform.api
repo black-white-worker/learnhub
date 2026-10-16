@@ -10,6 +10,6 @@ type Response {
 
 service learningplatform-api {
 	@handler LearningplatformHandler
-	get /from/:name (Request) returns (Response)
+	get /api/from/:name (Request) returns (Response)
 }
 
