@@ -3,8 +3,9 @@ package model
 // User 表示一个用户。
 // 当前是教学版：先放在内存里，后续接 MySQL 时替换为数据库表。
 type User struct {
-	Username string
-	Password string
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Nickname string `json:"nickname"`
 }
 
 // UserStore 内存用户存储。
@@ -32,4 +33,10 @@ func (s *UserStore) Verify(username, password string) bool {
 		return false
 	}
 	return user.Password == password
+}
+
+// GetUser 根据用户名返回用户对象（登录增强用，模拟张三开发的第二个功能）。
+// 用户不存在时返回 nil。
+func (s *UserStore) GetUser(username string) *User {
+	return s.users[username]
 }
