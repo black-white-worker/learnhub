@@ -1,35 +1,48 @@
-@import './base.css';
+/* ===== 全局样式与主题变量（重写：移除 Vite 模板的居中布局，定义教育蓝主题） ===== */
+
+:root {
+  /* Element Plus 主色 → 教育蓝 */
+  --el-color-primary: #2563eb;
+  --el-color-primary-light-3: #5a8bf0;
+  --el-color-primary-light-5: #8ab0f5;
+  --el-color-primary-light-7: #b8cff9;
+  --el-color-primary-light-8: #d2e1fb;
+  --el-color-primary-light-9: #ecf2fe;
+  --el-color-primary-dark-2: #1e4fc0;
+
+  /* 页面级变量 */
+  --app-bg: #f5f7fa;
+  --app-card-shadow: 0 2px 12px rgba(37, 99, 235, 0.06);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--app-bg);
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  color: #1f2937;
+  display: block; /* 覆盖模板 base.css 的居中 */
+}
 
 #app {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
+  min-height: 100vh;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  display: block;
   font-weight: normal;
 }
 
-a,
-.green {
+a {
   text-decoration: none;
-  color: hsla(160, 100%, 37%, 1);
-  transition: 0.4s;
-  padding: 3px;
-}
-
-@media (hover: hover) {
-  a:hover {
-    background-color: hsla(160, 100%, 37%, 0.2);
-  }
-}
-
-@media (min-width: 1024px) {
-  body {
-    display: flex;
-    place-items: center;
-  }
-
-  #app {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    padding: 0 2rem;
-  }
+  color: inherit;
 }

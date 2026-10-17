@@ -8,4 +8,9 @@ const request = axios.create({
   timeout: 10000,
 })
 
+// 登录接口：提交 {username, password}，成功返回 {token, username}
+export function login(data) {
+  return request.post('/user/login', data)
+}
+
 export default request

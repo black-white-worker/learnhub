@@ -8,8 +8,21 @@ type Response {
 	Message string `json:"message"`
 }
 
+type LoginRequest {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type LoginResponse {
+	Token    string `json:"token"`
+	Username string `json:"username"`
+}
+
 service learningplatform-api {
 	@handler LearningplatformHandler
 	get /api/from/:name (Request) returns (Response)
+
+	@handler LoginHandler
+	post /api/user/login (LoginRequest) returns (LoginResponse)
 }
 
