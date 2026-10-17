@@ -34,3 +34,9 @@ func (s *UserStore) Verify(username, password string) bool {
 	}
 	return user.Password == password
 }
+
+// GetUser 根据用户名返回用户对象（登录增强用，模拟张三开发的第二个功能）。
+// 用户不存在时返回 nil。
+func (s *UserStore) GetUser(username string) *User {
+	return s.users[username]
+}
