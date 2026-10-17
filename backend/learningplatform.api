@@ -18,11 +18,23 @@ type LoginResponse {
 	Username string `json:"username"`
 }
 
+type RegisterRequest {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type RegisterResponse {
+	Username string `json:"username"`
+}
+
 service learningplatform-api {
 	@handler LearningplatformHandler
 	get /api/from/:name (Request) returns (Response)
 
 	@handler LoginHandler
 	post /api/user/login (LoginRequest) returns (LoginResponse)
+
+	@handler RegisterHandler
+	post /api/user/register (RegisterRequest) returns (RegisterResponse)
 }
 

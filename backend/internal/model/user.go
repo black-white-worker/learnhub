@@ -1,5 +1,9 @@
 package model
 
+import (
+	"errors"
+)
+
 // User 表示一个用户。
 // 当前是教学版：先放在内存里，后续接 MySQL 时替换为数据库表。
 type User struct {
@@ -39,4 +43,14 @@ func (s *UserStore) Verify(username, password string) bool {
 // 用户不存在时返回 nil。
 func (s *UserStore) GetUser(username string) *User {
 	return s.users[username]
+}
+
+// Add 新增一个用户（注册功能用，模拟"同事李四"开发的代码）。
+// 用户名已存在时返回错误，避免重复注册。
+func (s *UserStore) Add(username, password string) error {
+	if _, ok := s.users[username]; ok {
+		return errors.New("用户名已存在")
+	}
+	s.users[username] = &User{Username: username, Password: password}
+	return nil
 }
