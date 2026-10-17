@@ -1,13 +1,23 @@
 <script setup>
-import { ref } from 'vue'
-import { useRouter, RouterView } from 'vue-router'
+import { ref, watch } from 'vue'
+import { useRouter, useRoute, RouterView } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Reading, Notebook, EditPen, Collection } from '@element-plus/icons-vue'
 
 const router = useRouter()
+const route = useRoute()
 
 // 当前登录用户（登录成功后由 LoginView 写入 localStorage）
 const username = ref(localStorage.getItem('username') || '')
+
+// 路由切换时同步登录状态：
+// 在登录页登录成功后跳回首页，右上角立即从"登录"变成"退出登录"
+watch(
+  () => route.fullPath,
+  () => {
+    username.value = localStorage.getItem('username') || ''
+  }
+)
 
 // 顶部导航菜单
 const menus = [
@@ -65,7 +75,7 @@ function logout() {
           <template v-if="username">
             <el-avatar :size="32" class="avatar">{{ username.charAt(0).toUpperCase() }}</el-avatar>
             <span class="username">{{ username }}</span>
-            <el-button link type="primary" @click="logout">退出</el-button>
+            <el-button link type="primary" @click="logout">退出登录</el-button>
           </template>
           <template v-else>
             <el-button type="primary" @click="goLogin">登录</el-button>

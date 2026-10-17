@@ -14,10 +14,10 @@ const form = reactive({
   password: '',
 })
 
-// Element Plus 表单校验规则：必填
+// Element Plus 表单校验规则：必填（错误文案与 placeholder 区分，避免视觉重复）
 const rules = {
-  username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
-  password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
+  username: [{ required: true, message: '用户名不能为空', trigger: 'blur' }],
+  password: [{ required: true, message: '密码不能为空', trigger: 'blur' }],
 }
 
 async function handleLogin() {
@@ -50,7 +50,7 @@ async function handleLogin() {
   <div class="login-page">
     <el-card class="login-card">
       <h2 class="title">登录</h2>
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="60px">
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="76px">
         <el-form-item label="用户名" prop="username">
           <el-input v-model="form.username" placeholder="请输入用户名" />
         </el-form-item>
@@ -64,6 +64,7 @@ async function handleLogin() {
         </el-form-item>
       </el-form>
       <p class="tip">测试账号：admin / 123456</p>
+      <p class="tip">没有账号？<router-link to="/register">去注册</router-link></p>
     </el-card>
   </div>
 </template>
@@ -80,6 +81,7 @@ async function handleLogin() {
 
 .login-card {
   width: 380px;
+  padding: 12px 8px;
   border-radius: 14px;
   box-shadow: 0 12px 32px rgba(37, 99, 235, 0.12);
 }
@@ -93,5 +95,10 @@ async function handleLogin() {
   color: #999;
   font-size: 13px;
   text-align: center;
+}
+
+.tip a {
+  color: #2563eb;
+  text-decoration: none;
 }
 </style>

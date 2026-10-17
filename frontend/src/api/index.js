@@ -13,4 +13,9 @@ export function login(data) {
   return request.post('/user/login', data)
 }
 
+// 注册接口：提交 {username, password}，成功返回 {username}
+export function register(data) {
+  return request.post('/user/register', data)
+}
+
 export default request
