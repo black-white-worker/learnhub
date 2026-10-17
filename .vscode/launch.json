@@ -1,0 +1,15 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Launch Backend",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            // program 指向后端 main 包所在目录（learningplatform.go 在 backend 下）
+            "program": "${workspaceFolder}/backend",
+            // cwd 必须是 backend：后端启动时要读取 etc/learningplatform-api.yaml（相对路径）
+            "cwd": "${workspaceFolder}/backend"
+        }
+    ]
+}
