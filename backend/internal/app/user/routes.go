@@ -25,6 +25,12 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/api/user/login",
 				Handler: LoginHandler(serverCtx),
 			},
+			// 注册接口
+			{
+				Method:  http.MethodPost,
+				Path:    "/api/user/register",
+				Handler: RegisterHandler(serverCtx),
+			},
 		},
 	)
 }

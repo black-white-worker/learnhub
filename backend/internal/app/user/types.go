@@ -21,3 +21,14 @@ type LoginResponse struct {
 	Token    string `json:"token"`
 	Username string `json:"username"`
 }
+
+// ===== 注册接口 POST /api/user/register =====
+
+type RegisterRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type RegisterResponse struct {
+	Username string `json:"username"`
+}
