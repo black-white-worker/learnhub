@@ -27,6 +27,17 @@ type RegisterResponse {
 	Username string `json:"username"`
 }
 
+// 登出接口（需登录，token 放在 Authorization: Bearer 头）
+type LogoutResponse {
+	Username string `json:"username"`
+}
+
+// 当前用户信息接口（需登录）
+type InfoResponse {
+	Username string `json:"username"`
+	Nickname string `json:"nickname"`
+}
+
 service learningplatform-api {
 	@handler LearningplatformHandler
 	get /api/from/:name (Request) returns (Response)
@@ -36,5 +47,11 @@ service learningplatform-api {
 
 	@handler RegisterHandler
 	post /api/user/register (RegisterRequest) returns (RegisterResponse)
+
+	@handler LogoutHandler
+	post /api/user/logout () returns (LogoutResponse)
+
+	@handler InfoHandler
+	get /api/user/info () returns (InfoResponse)
 }
 

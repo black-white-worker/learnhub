@@ -1,0 +1,81 @@
+services:
+  # ===== MySQL 数据库 =====
+  mysql:
+    image: mysql:8.4
+    container_name: learningplatform-mysql
+    restart: unless-stopped
+    # 强制服务端字符集 utf8mb4，避免客户端连接默认 latin1 导致中文乱码
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    environment:
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_ROOT_HOST: "%"
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:${DB_PORT}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      # 首次启动自动执行建表 + 预置账号的 SQL
+      - ./backend/deploy/sql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  # ===== Redis 缓存 =====
+  redis:
+    image: redis:7.4-alpine
+    container_name: learningplatform-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  # ===== 后端 API（go-zero） =====
+  backend:
+    build:
+      context: ./backend
+    container_name: learningplatform-backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # 容器内通过 docker 网络访问 mysql / redis 服务名
+      MYSQL_DSN: "${DB_USERNAME}:${DB_PASSWORD}@tcp(mysql:3306)/${DB_NAME}?charset=utf8mb4&parseTime=true&loc=Local"
+      REDIS_HOST: redis:6379
+      REDIS_PASS: ${REDIS_PASSWORD}
+    ports:
+      - "127.0.0.1:${BACKEND_PORT}:8888"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8888/api/from/you || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  # ===== 前端（Vue3 + nginx） =====
+  frontend:
+    build:
+      context: ./frontend
+    container_name: learningplatform-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${HTTP_PORT}:80"
+
+volumes:
+  mysql_data:
+  redis_data:
