@@ -6,17 +6,23 @@ package svc
 import (
 	"learningplatform/internal/config"
 	"learningplatform/internal/model"
+
+	"github.com/zeromicro/go-zero/core/stores/redis"
+	"github.com/zeromicro/go-zero/core/stores/sqlx"
 )
 
 type ServiceContext struct {
 	Config config.Config
-	// UserStore 用户存储（内存版），登录/注册逻辑都从这里取数据
-	UserStore *model.UserStore
+	// UserStore 用户存储（MySQL 版），登录/注册逻辑都从这里取数据
+	UserStore *model.UserModel
+	// Redis 缓存客户端，登录成功后把 token 写入 Redis
+	Redis *redis.Redis
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
 	return &ServiceContext{
 		Config:    c,
-		UserStore: model.NewUserStore(),
+		UserStore: model.NewUserModel(sqlx.NewMysql(c.Mysql.DataSource)),
+		Redis:     redis.MustNewRedis(c.Redis),
 	}
 }
