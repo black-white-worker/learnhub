@@ -21,6 +21,18 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/api/course/create",
 				Handler: CreateHandler(serverCtx),
 			},
+			// 课程封面上传接口（multipart：courseId + file，生成原图+缩略图存 MinIO）
+			{
+				Method:  http.MethodPost,
+				Path:    "/api/course/upload/cover",
+				Handler: CoverUploadHandler(serverCtx),
+			},
+			// 课程视频上传接口（multipart：courseId + files，一次可传多个视频）
+			{
+				Method:  http.MethodPost,
+				Path:    "/api/course/upload/videos",
+				Handler: VideoUploadHandler(serverCtx),
+			},
 		},
 	)
 }

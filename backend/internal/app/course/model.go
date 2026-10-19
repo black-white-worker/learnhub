@@ -1,6 +1,9 @@
 package course
 
-import "errors"
+import (
+	"errors"
+	"sync"
+)
 
 // Course 表示一门课程。
 //
@@ -12,6 +15,23 @@ type Course struct {
 	Name    string `json:"name"`
 	Intro   string `json:"intro"`
 	Teacher string `json:"teacher"`
+
+	// ===== 以下字段为 MinIO 上传功能新增（原字段保持不变）=====
+	CoverUrl      string   `json:"coverUrl"`      // 封面原图 URL（存 MinIO）
+	CoverThumbUrl string   `json:"coverThumbUrl"` // 封面缩略图 URL（320x180，存 MinIO）
+	Videos        []*Video `json:"videos"`        // 本课程已上传的视频列表
+
+	nextVideoId int // 本课程下一个视频 id（内存存储用，不参与 JSON 序列化）
+}
+
+// Video 表示课程下的一个视频文件。
+// 视频本体存在 MinIO，这里只记录元信息（视频列表展示就靠它）。
+type Video struct {
+	Id         int    `json:"id"`
+	Name       string `json:"name"`
+	Url        string `json:"url"`
+	Size       int64  `json:"size"`
+	UploadedAt string `json:"uploadedAt"`
 }
 
 // courseStore 内存课程存储（教学版）：
@@ -19,6 +39,7 @@ type Course struct {
 // 这里用包级单例，避免引入 model 包的循环依赖（app/course 依赖 svc，svc 依赖 model）；
 // 合并解决冲突后，可以再统一迁移到 svc.ServiceContext 注入。
 type courseStore struct {
+	mu      sync.RWMutex   // 读写锁：上传封面/视频会并发写 map，加锁保证线程安全
 	courses map[int]*Course
 	nextId  int
 }
@@ -47,6 +68,9 @@ func (s *courseStore) AddCourse(name, intro, teacher string) (*Course, error) {
 		return nil, errors.New("课程名称不能为空")
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	// 2. 重名校验：遍历已有课程，发现同名直接报错
 	for _, c := range s.courses {
 		if c.Name == name {
@@ -59,4 +83,46 @@ func (s *courseStore) AddCourse(name, intro, teacher string) (*Course, error) {
 	s.courses[c.Id] = c
 	s.nextId++
 	return c, nil
+}
+
+// GetCourse 根据 id 获取课程（封面上传 / 视频上传前先确认课程存在）。
+// 课程不存在时返回错误。
+func (s *courseStore) GetCourse(id int) (*Course, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	c, ok := s.courses[id]
+	if !ok {
+		return nil, errors.New("课程不存在")
+	}
+	return c, nil
+}
+
+// SetCover 设置课程封面（原图 URL + 缩略图 URL）。
+func (s *courseStore) SetCover(id int, coverUrl, coverThumbUrl string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.courses[id]
+	if !ok {
+		return errors.New("课程不存在")
+	}
+	c.CoverUrl = coverUrl
+	c.CoverThumbUrl = coverThumbUrl
+	return nil
+}
+
+// AddVideos 给课程追加视频列表（视频上传功能用）。
+// 每门课程内部的视频 id 从 1 开始自增。
+func (s *courseStore) AddVideos(id int, videos []*Video) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.courses[id]
+	if !ok {
+		return errors.New("课程不存在")
+	}
+	for _, v := range videos {
+		c.nextVideoId++
+		v.Id = c.nextVideoId
+		c.Videos = append(c.Videos, v)
+	}
+	return nil
 }

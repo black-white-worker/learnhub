@@ -1,3 +1,18 @@
 Name: learningplatform-api
 Host: 0.0.0.0
 Port: 8888
+# 单个请求体最大字节数（多视频上传用，256MB）
+MaxBytes: 268435456
+
+# MinIO 对象存储（课程封面 / 缩略图 / 视频）
+Minio:
+  Endpoint: 127.0.0.1:9000
+  AccessKey: minioadmin
+  SecretKey: minioadmin
+  UseSSL: false
+  Bucket: learningplatform
+
+# 上传大小限制（字节）
+Upload:
+  MaxCoverBytes: 5242880      # 封面 5MB
+  MaxVideoBytes: 209715200    # 单个视频 200MB
