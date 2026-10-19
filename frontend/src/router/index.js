@@ -30,7 +30,14 @@ const router = createRouter({
     {
       path: '/course/create',
       name: 'course-create',
+      // 课程创建页（来自「课程创建」分支）
       component: () => import('../views/CourseCreateView.vue'),
+    },
+    {
+      path: '/courses',
+      name: 'courses',
+      // 课程列表页（来自「课程列表」分支）：展示 GET /api/course/list 返回的课程
+      component: () => import('../views/CourseListView.vue'),
     },
   ],
 })

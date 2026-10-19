@@ -59,3 +59,10 @@ type UploadVideosResponse struct {
 	CourseId int      `json:"courseId"`
 	Videos   []*Video `json:"videos"`
 }
+
+// ===== 课程列表接口 GET /api/course/list =====
+
+// ListResponse 课程列表响应体：返回全部课程（来自「课程列表」分支）。
+type ListResponse struct {
+	Courses []*Course `json:"courses"`
+}

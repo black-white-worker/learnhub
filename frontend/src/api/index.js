@@ -18,9 +18,14 @@ export function register(data) {
   return request.post('/user/register', data)
 }
 
-// 课程创建接口：提交 {name, intro, teacher}，成功返回 {id, name}
+// 课程创建接口（来自「课程创建」分支）：提交 {name, intro, teacher}，成功返回 {id, name}
 export function createCourse(data) {
   return request.post('/course/create', data)
+}
+
+// 课程列表接口（来自「课程列表」分支）：GET /api/course/list，成功返回 {courses: [...]}
+export function fetchCourseList() {
+  return request.get('/course/list')
 }
 
 export default request
