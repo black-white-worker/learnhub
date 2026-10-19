@@ -18,4 +18,9 @@ export function register(data) {
   return request.post('/user/register', data)
 }
 
+// 课程列表接口：GET /api/course/list，成功返回 {courses: [...]}
+export function fetchCourseList() {
+  return request.get('/course/list')
+}
+
 export default request

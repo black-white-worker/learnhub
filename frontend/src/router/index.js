@@ -27,6 +27,12 @@ const router = createRouter({
       name: 'register',
       component: () => import('../views/RegisterView.vue'),
     },
+    {
+      path: '/courses',
+      name: 'courses',
+      // 课程列表页（员工 B 开发的功能）：展示 GET /api/course/list 返回的课程
+      component: () => import('../views/CourseListView.vue'),
+    },
   ],
 })
 
