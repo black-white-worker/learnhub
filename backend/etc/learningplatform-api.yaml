@@ -16,3 +16,17 @@ Minio:
 Upload:
   MaxCoverBytes: 5242880      # 封面 5MB
   MaxVideoBytes: 209715200    # 单个视频 200MB
+
+# ===== MySQL 配置 =====
+# 数据源通过环境变量 MYSQL_DSN 注入（本机直跑示例）：
+#   MYSQL_DSN=root:Java666@tcp(127.0.0.1:3316)/learningplatform?charset=utf8mb4&parseTime=true&loc=Local
+# Docker Compose 里会自动指向 mysql 容器，无需手动设置。
+Mysql:
+  DataSource: "${MYSQL_DSN}"
+
+# ===== Redis 配置 =====
+# 地址与密码通过环境变量 REDIS_HOST / REDIS_PASS 注入
+Redis:
+  Host: "${REDIS_HOST}"
+  Type: node
+  Pass: "${REDIS_PASS}"
