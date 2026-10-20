@@ -33,4 +33,26 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 			},
 		},
 	)
+
+	// 需要登录的接口：统一挂鉴权中间件（Redis 会话校验）
+	// 请求需带 Authorization: Bearer {token}
+	server.AddRoutes(
+		rest.WithMiddleware(
+			NewAuthMiddleware(serverCtx).Handle,
+			[]rest.Route{
+				// 登出接口（删除 Redis 会话，登录态立即失效）
+				{
+					Method:  http.MethodPost,
+					Path:    "/api/user/logout",
+					Handler: LogoutHandler(serverCtx),
+				},
+				// 当前用户信息接口（演示登录态读取）
+				{
+					Method:  http.MethodGet,
+					Path:    "/api/user/info",
+					Handler: InfoHandler(serverCtx),
+				},
+			}...,
+		),
+	)
 }

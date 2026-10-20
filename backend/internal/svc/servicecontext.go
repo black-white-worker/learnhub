@@ -9,22 +9,23 @@ import (
 	"learningplatform/internal/oss"
 
 	"github.com/zeromicro/go-zero/core/logx"
+	"github.com/zeromicro/go-zero/core/stores/redis"
+	"github.com/zeromicro/go-zero/core/stores/sqlx"
 )
 
 type ServiceContext struct {
-	Config config.Config
-	// UserStore 用户存储（内存版），登录/注册逻辑都从这里取数据
-	UserStore *model.UserStore
-	// Oss 对象存储（MinIO）。
-	// 配置了 Minio.Endpoint 才会初始化；未配置或初始化失败时为 nil，
-	// 上传接口会返回明确错误，而不是 panic。
-	Oss oss.ObjectStorage
+	Config    config.Config
+	Oss       oss.ObjectStorage
+	UserStore *model.UserModel
+	// Redis 缓存客户端，登录成功后把 token 写入 Redis
+	Redis *redis.Redis
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
 	sc := &ServiceContext{
 		Config:    c,
-		UserStore: model.NewUserStore(),
+		UserStore: model.NewUserModel(sqlx.NewMysql(c.Mysql.DataSource)),
+		Redis:     redis.MustNewRedis(c.Redis),
 	}
 
 	// MinIO 配置了 Endpoint 才初始化对象存储。
