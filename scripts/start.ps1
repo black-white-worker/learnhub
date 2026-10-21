@@ -97,6 +97,15 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
+# 4.1 清理旧构建的悬空镜像（dangling image）
+# docker compose build 每次会生成新镜像，旧版本会变成"悬空镜像"堆积占磁盘。
+# 这里只删没有任何标签/容器引用的悬空镜像，不影响正在使用的镜像，安全。
+Write-Host "清理旧构建的悬空镜像 ..." -ForegroundColor Cyan
+docker image prune -f
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "镜像清理失败（不影响服务运行，可忽略）" -ForegroundColor Yellow
+}
+
 # 5. 等待后端接口就绪（最多 90 秒）
 Write-Host "等待服务就绪 ..." -ForegroundColor Yellow
 $ready = $false
