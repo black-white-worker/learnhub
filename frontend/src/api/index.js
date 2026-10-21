@@ -28,4 +28,18 @@ export function fetchCourseList() {
   return request.get('/course/list')
 }
 
+// 课程封面上传接口：提交 FormData（courseId + file）
+// 成功返回 {courseId, coverUrl, coverThumbUrl}
+// 注意：data 是 FormData 时 axios 会自动带上 multipart/form-data 及 boundary，
+// 不要手动设置 Content-Type，否则会丢失 boundary 导致后端解析失败
+export function uploadCourseCover(data) {
+  return request.post('/course/upload/cover', data)
+}
+
+// 课程视频上传接口：提交 FormData（courseId + files，支持一次多个视频文件）
+// 成功返回 {courseId, videos: [{id, name, url, size, uploadedAt}]}
+export function uploadCourseVideos(data) {
+  return request.post('/course/upload/videos', data)
+}
+
 export default request
