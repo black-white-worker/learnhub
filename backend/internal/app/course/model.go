@@ -22,7 +22,11 @@ type Course struct {
 	CoverThumbUrl string   `json:"coverThumbUrl"` // 封面缩略图 URL（320x180，存 MinIO）
 	Videos        []*Video `json:"videos"`        // 本课程已上传的视频列表
 
-	nextVideoId int // 本课程下一个视频 id（内存存储用，不参与 JSON 序列化）
+	// ===== 以下为「课程资源」分支新增 =====
+	Resources []*Resource `json:"resources"` // 本课程已上传的文档资源（PPT/Word/PDF）
+
+	nextVideoId   int // 本课程下一个视频 id（内存存储用，不参与 JSON 序列化）
+	nextResourceId int // 本课程下一个资源 id（内存存储用，不参与 JSON 序列化）
 }
 
 // Video 表示课程下的一个视频文件。
@@ -185,4 +189,51 @@ func (s *courseStore) List() []*Course {
 		result = append(result, s.courses[id])
 	}
 	return result
+}
+
+// ===== 以下为「课程资源」分支新增 =====
+
+// AddResource 给课程追加一个文档资源。
+// 课程内部的资源 id 从 1 开始自增；课程不存在时报错。
+func (s *courseStore) AddResource(id int, res *Resource) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.courses[id]
+	if !ok {
+		return errors.New("课程不存在")
+	}
+	c.nextResourceId++
+	res.Id = c.nextResourceId
+	c.Resources = append(c.Resources, res)
+	return nil
+}
+
+// ListResources 返回某课程的全部资源（按上传顺序）。
+// 课程不存在时报错。
+func (s *courseStore) ListResources(id int) ([]*Resource, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	c, ok := s.courses[id]
+	if !ok {
+		return nil, errors.New("课程不存在")
+	}
+	return c.Resources, nil
+}
+
+// DeleteResource 删除课程下的某个资源。
+// 课程或资源不存在时返回错误。
+func (s *courseStore) DeleteResource(id, resourceId int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.courses[id]
+	if !ok {
+		return errors.New("课程不存在")
+	}
+	for i, r := range c.Resources {
+		if r.Id == resourceId {
+			c.Resources = append(c.Resources[:i], c.Resources[i+1:]...)
+			return nil
+		}
+	}
+	return errors.New("资源不存在")
 }

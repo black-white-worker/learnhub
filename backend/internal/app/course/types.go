@@ -116,3 +116,53 @@ type DeleteCourseRequest struct {
 type DeleteCourseResponse struct {
 	Id int `json:"id"`
 }
+
+// ===== 课程资源（PPT / Word / PDF 讲义）上传 / 列表 / 删除 =====
+
+// Resource 课程下的一个文档资源文件。
+// 文件本体存 MinIO，这里只记元信息，供资源列表展示和点击下载。
+type Resource struct {
+	Id         int    `json:"id"`
+	Name       string `json:"name"`       // 原始文件名（带扩展名）
+	Url        string `json:"url"`        // MinIO 直链（浏览器可直接打开 / 下载）
+	Size       int64  `json:"size"`       // 文件大小（字节）
+	Type       string `json:"type"`       // 资源类型：pdf / ppt / pptx / doc / docx
+	UploadedAt string `json:"uploadedAt"` // 上传时间（RFC3339）
+}
+
+// UploadResourceRequest 资源上传请求。
+// handler 从 multipart 表单解析后组装（表单字段：courseId + file）。
+type UploadResourceRequest struct {
+	CourseId  int
+	FileName  string
+	FileBytes []byte
+}
+
+// UploadResourceResponse 资源上传响应：返回新上传的资源元信息。
+type UploadResourceResponse struct {
+	CourseId int       `json:"courseId"`
+	Resource *Resource `json:"resource"`
+}
+
+// ListResourcesRequest 路径参数：课程 id。
+type ListResourcesRequest struct {
+	CourseId int `path:"courseId"`
+}
+
+// ListResourcesResponse 资源列表响应：返回某课程全部资源。
+type ListResourcesResponse struct {
+	CourseId  int         `json:"courseId"`
+	Resources []*Resource `json:"resources"`
+}
+
+// DeleteResourceRequest 路径参数：课程 id + 资源 id。
+type DeleteResourceRequest struct {
+	CourseId   int `path:"courseId"`
+	ResourceId int `path:"resourceId"`
+}
+
+// DeleteResourceResponse 删除资源响应。
+type DeleteResourceResponse struct {
+	CourseId   int `json:"courseId"`
+	ResourceId int `json:"resourceId"`
+}
