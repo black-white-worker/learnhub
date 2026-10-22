@@ -12,7 +12,7 @@ import (
 // 配置未设置时的默认大小上限（字节）
 const (
 	defaultMaxCoverBytes = 5 << 20   // 封面 5MB
-	defaultMaxVideoBytes = 200 << 20 // 单个视频 200MB
+	defaultMaxVideoBytes = 500 << 20 // 单个视频 500MB
 )
 
 // effectiveMaxCoverBytes 取配置的封面上限；配置为 0（未设置）时用默认值。

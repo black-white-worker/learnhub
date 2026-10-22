@@ -2,7 +2,8 @@
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { createCourse, uploadCourseCover, uploadCourseVideos } from '../api/index.js'
+import { createCourse, fetchCourseList, uploadCourseCover, uploadCourseVideos } from '../api/index.js'
+import { uploadCoverFlow, uploadVideosFlow, createCourseFlow } from '../utils/courseCreateFlow.js'
 
 const router = useRouter()
 const formRef = ref(null)
@@ -15,17 +16,36 @@ const form = reactive({
   teacher: '',
 })
 
+// 前端重复名校验：失焦时拉取课程列表，命中同名就拦截，避免白等一次后端请求
+// 例外：如果同名课程就是"当前刚创建成功的那门"（上传失败重试场景），放行
+async function validateCourseName(rule, value, callback) {
+  if (!value) return callback()
+  try {
+    const res = await fetchCourseList()
+    const exists = (res.data.courses || []).some((c) => c.name === value)
+    if (exists && createdName.value !== value) {
+      callback(new Error('该课程名称已存在，请换一个'))
+    } else {
+      callback()
+    }
+  } catch {
+    // 列表接口暂时不可用时放行，后端仍会兜底校验重名
+    callback()
+  }
+}
+
 // Element Plus 表单校验规则
 const rules = {
   name: [
     { required: true, message: '课程名称不能为空', trigger: 'blur' },
     { min: 2, max: 50, message: '课程名称长度 2-50 个字符', trigger: 'blur' },
+    { validator: validateCourseName, trigger: 'blur' },
   ],
   intro: [{ max: 200, message: '简介最长 200 个字符', trigger: 'blur' }],
   teacher: [{ max: 20, message: '教师名最长 20 个字符', trigger: 'blur' }],
 }
 
-// ===== 封面上传 + 视频上传（MinIO）状态 =====
+// ===== 封面 / 视频上传状态 =====
 const createdId = ref(0)      // 创建成功后记录课程 id，上传接口靠它定位课程
 const createdName = ref('')   // 当前课程的名称（展示用）
 const coverFile = ref(null)   // 待上传的封面文件（File 对象）
@@ -35,6 +55,20 @@ const videoFiles = ref([])    // 待上传的视频文件列表（File 对象数
 const videoUploading = ref(false)
 const videoResult = ref([])   // 上传成功后的视频列表 [{id, name, url, size, uploadedAt}]
 
+// ===== 传给流程函数的接口与状态容器 =====
+// 状态容器持有各 ref 的引用，流程函数内部直接改 .value，
+// 组件里的变量名保持原样（createdId / coverResult / videoResult ...）。
+const api = { createCourse, fetchCourseList, uploadCourseCover, uploadCourseVideos }
+const session = {
+  createdId,
+  createdName,
+  coverResult,
+  videoResult,
+}
+
+// ===== 主提交：创建课程 =====
+// 流程：确保课程存在（未创建则先创建）→ 兜底上传"选了但没传"的文件
+// 全部成功 → 跳转课程列表；任一步失败 → 留在页面提示对应错误
 async function handleCreate() {
   // 先触发 Element Plus 表单校验，没通过就直接返回，不发请求
   try {
@@ -44,68 +78,54 @@ async function handleCreate() {
   }
 
   loading.value = true
-  try {
-    // 调用后端课程创建接口
-    const res = await createCourse({
-      name: form.name,
-      intro: form.intro,
-      teacher: form.teacher,
-    })
-    // 记住创建出的课程，供后续上传封面/视频使用
-    createdId.value = res.data.id
-    createdName.value = res.data.name
-    // 重置上传区状态，避免上一门课的残留
-    coverFile.value = null
-    coverResult.value = null
-    videoFiles.value = []
-    videoResult.value = []
-    ElMessage.success(`课程创建成功：${res.data.name}`)
-    // 创建成功后清空表单，方便继续录入下一门课程
-    form.name = ''
-    form.intro = ''
-    form.teacher = ''
-  } catch (e) {
-    // 后端返回错误时，msg 字段是错误信息（如课程已存在）
-    ElMessage.error(e.response?.data?.msg || '课程创建失败，请重试')
-  } finally {
-    loading.value = false
+  const result = await createCourseFlow(
+    api,
+    form,
+    session,
+    {
+      coverFile: coverFile.value,
+      videoFiles: videoFiles.value,
+      coverResult,
+      videoResult,
+    },
+  )
+  loading.value = false
+
+  if (result.ok) {
+    ElMessage.success('课程创建成功，正在跳转课程列表')
+    setTimeout(() => router.push('/courses'), 1000)
+  } else {
+    // 失败留在页面，提示后端返回的具体错误（如"课程名称已存在"）
+    ElMessage.error(result.error)
   }
 }
 
-// ===== 封面上传 =====
-// el-upload 关闭自动上传（:auto-upload="false"），只在用户选择文件时把 File 存下来
+// ===== 封面上传（单独重试用）=====
 function onCoverChange(file) {
   coverFile.value = file.raw
   coverResult.value = null // 换了文件后旧结果作废
 }
 
 async function handleUploadCover() {
-  if (!createdId.value) {
-    ElMessage.warning('请先创建课程')
-    return
-  }
+  // 上传封面前先校验"有没有选文件"；没选时提示先选文件
   if (!coverFile.value) {
     ElMessage.warning('请先选择封面图片')
     return
   }
-  // 组装 multipart 表单：courseId + file（字段名与后端 CoverUploadHandler 约定一致）
-  const fd = new FormData()
-  fd.append('courseId', createdId.value)
-  fd.append('file', coverFile.value)
-
   coverUploading.value = true
-  try {
-    const res = await uploadCourseCover(fd)
-    coverResult.value = res.data
-    ElMessage.success('封面上传成功')
-  } catch (e) {
-    ElMessage.error(e.response?.data?.msg || '封面上传失败，请重试')
-  } finally {
-    coverUploading.value = false
+  // 课程未创建时流程内部会用当前表单数据自动创建，再上传封面
+  const result = await uploadCoverFlow(api, form, session, coverFile.value)
+  coverUploading.value = false
+
+  if (result.ok) {
+    ElMessage.success('封面上传成功，可继续上传视频')
+  } else {
+    // 失败留在页面，提示对应错误（可能是创建失败或上传失败）
+    ElMessage.error(result.error)
   }
 }
 
-// ===== 多视频上传 =====
+// ===== 多视频上传（单独重试用）=====
 function onVideosChange(file, fileList) {
   // fileList 是 el-upload 内部维护的列表，取每个的 .raw 才是真正的 File 对象
   videoFiles.value = fileList.map((f) => f.raw)
@@ -113,28 +133,21 @@ function onVideosChange(file, fileList) {
 }
 
 async function handleUploadVideos() {
-  if (!createdId.value) {
-    ElMessage.warning('请先创建课程')
-    return
-  }
+  // 上传视频前先校验"有没有选文件"；没选时提示先选文件
   if (videoFiles.value.length === 0) {
     ElMessage.warning('请先选择视频文件')
     return
   }
-  // 组装 multipart 表单：courseId + 多个 files（字段名与后端 VideoUploadHandler 约定一致）
-  const fd = new FormData()
-  fd.append('courseId', createdId.value)
-  videoFiles.value.forEach((v) => fd.append('files', v))
-
   videoUploading.value = true
-  try {
-    const res = await uploadCourseVideos(fd)
-    videoResult.value = res.data.videos || []
-    ElMessage.success(`成功上传 ${videoResult.value.length} 个视频`)
-  } catch (e) {
-    ElMessage.error(e.response?.data?.msg || '视频上传失败，请重试')
-  } finally {
-    videoUploading.value = false
+  // 课程未创建时流程内部会用当前表单数据自动创建，再上传视频
+  const result = await uploadVideosFlow(api, form, session, videoFiles.value)
+  videoUploading.value = false
+
+  if (result.ok) {
+    ElMessage.success(`成功上传 ${result.count} 个视频`)
+  } else {
+    // 失败留在页面，提示对应错误
+    ElMessage.error(result.error)
   }
 }
 
@@ -156,9 +169,11 @@ function formatSize(bytes) {
   <div class="course-create-page">
     <el-card class="course-create-card">
       <h2 class="title">新建课程</h2>
+
+      <!-- 基本信息 -->
       <el-form ref="formRef" :model="form" :rules="rules" label-width="76px">
         <el-form-item label="课程名称" prop="name">
-          <el-input v-model="form.name" placeholder="请输入课程名称" />
+          <el-input v-model="form.name" placeholder="请输入课程名称（不能与已有课程重名）" />
         </el-form-item>
         <el-form-item label="简介" prop="intro">
           <el-input v-model="form.intro" type="textarea" :rows="3" placeholder="请输入课程简介（可选）" />
@@ -166,20 +181,9 @@ function formatSize(bytes) {
         <el-form-item label="教师" prop="teacher">
           <el-input v-model="form.teacher" placeholder="请输入授课教师（可选）" />
         </el-form-item>
-        <el-form-item>
-          <el-button type="primary" :loading="loading" style="width: 100%" @click="handleCreate">
-            创建课程
-          </el-button>
-        </el-form-item>
       </el-form>
-      <p class="tip">创建成功后清空表单，可继续录入下一门课程</p>
-    </el-card>
 
-    <!-- 课程创建成功后，出现封面上传 + 视频上传区（MinIO） -->
-    <el-card v-if="createdId" class="upload-card">
-      <h3 class="upload-title">为「{{ createdName }}」上传素材</h3>
-
-      <!-- 封面：单文件，图片 -->
+      <!-- 封面：选择随时可用；未创建课程时上传按钮点击会提示先创建 -->
       <el-form label-width="76px">
         <el-form-item label="课程封面">
           <el-upload accept="image/*" :auto-upload="false" :on-change="onCoverChange">
@@ -190,12 +194,7 @@ function formatSize(bytes) {
           </el-upload>
         </el-form-item>
         <el-form-item>
-          <el-button
-            type="success"
-            :loading="coverUploading"
-            :disabled="!coverFile"
-            @click="handleUploadCover"
-          >
+          <el-button type="success" :loading="coverUploading" @click="handleUploadCover">
             上传封面
           </el-button>
         </el-form-item>
@@ -207,7 +206,7 @@ function formatSize(bytes) {
         </el-form-item>
       </el-form>
 
-      <!-- 视频：多文件 -->
+      <!-- 视频：选择随时可用 -->
       <el-form label-width="76px">
         <el-form-item label="课程视频">
           <el-upload
@@ -223,12 +222,7 @@ function formatSize(bytes) {
           </el-upload>
         </el-form-item>
         <el-form-item>
-          <el-button
-            type="success"
-            :loading="videoUploading"
-            :disabled="videoFiles.length === 0"
-            @click="handleUploadVideos"
-          >
+          <el-button type="success" :loading="videoUploading" @click="handleUploadVideos">
             上传视频
           </el-button>
         </el-form-item>
@@ -246,6 +240,14 @@ function formatSize(bytes) {
           </template>
         </el-table-column>
       </el-table>
+
+      <!-- 创建课程按钮：放在所有功能块下方，作为总提交 -->
+      <div class="create-btn-row">
+        <el-button type="primary" :loading="loading" style="width: 100%" @click="handleCreate">
+          创建课程
+        </el-button>
+      </div>
+      <p class="tip">选择文件后点击"上传封面 / 上传视频"可单独上传并查看结果；最后点击"创建课程"，成功后跳转课程列表，失败留在本页可重试</p>
     </el-card>
   </div>
 </template>
@@ -253,30 +255,21 @@ function formatSize(bytes) {
 <style scoped>
 .course-create-page {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 20px;
+  justify-content: center;
+  align-items: flex-start;
   min-height: 70vh;
   background: linear-gradient(160deg, #eef2ff 0%, #f5f7fa 60%);
   padding: 24px;
 }
 
 .course-create-card {
-  width: 480px;
-  padding: 12px 8px;
-  border-radius: 14px;
-  box-shadow: 0 12px 32px rgba(37, 99, 235, 0.12);
-}
-
-.upload-card {
   width: 560px;
-  padding: 12px 8px;
+  padding: 12px 16px;
   border-radius: 14px;
   box-shadow: 0 12px 32px rgba(37, 99, 235, 0.12);
 }
 
-.title,
-.upload-title {
+.title {
   text-align: center;
   margin: 0 0 16px;
 }
@@ -288,9 +281,14 @@ function formatSize(bytes) {
   margin-bottom: 8px;
 }
 
+.create-btn-row {
+  margin-top: 16px;
+}
+
 .tip {
   color: #999;
   font-size: 13px;
   text-align: center;
+  margin: 10px 0 0;
 }
 </style>

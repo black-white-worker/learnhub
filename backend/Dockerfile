@@ -8,11 +8,15 @@ WORKDIR /build
 
 # 先拷贝依赖清单，利用 Docker 层缓存
 COPY go.mod go.sum ./
-RUN go mod download
+# --mount=type=cache：把 Go 模块缓存挂到持久缓存盘（不进镜像层）。
+# 这样 go.mod 再怎么加依赖，已下载的模块直接复用，不会整层重新下载，
+# 也不会在构建缓存里堆积重复的 300MB+ 依赖层。
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 # 拷贝源码并编译
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o learningplatform-api learningplatform.go
+# 编译缓存同样挂到持久缓存盘：只改一个文件时，增量编译，不整层重编。
+RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 GOOS=linux go build -trimpath -o learningplatform-api learningplatform.go
 
 # 阶段二：只保留可执行文件和配置，镜像更小
 FROM alpine:3.21

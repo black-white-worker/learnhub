@@ -6,7 +6,9 @@ FROM node:22-alpine AS builder
 RUN npm config set registry https://registry.npmmirror.com
 WORKDIR /build
 COPY package.json package-lock.json ./
-RUN npm ci
+# --mount=type=cache：npm 下载缓存挂到持久缓存盘（不进镜像层）。
+# package-lock 变动时只下载新增/变化的包，不会每次整层重新 npm ci。
+RUN --mount=type=cache,target=/root/.npm npm ci
 COPY . .
 RUN npm run build
 

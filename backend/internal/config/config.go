@@ -29,16 +29,17 @@ type Config struct {
 // MinioConf MinIO 连接配置。
 // 对应 etc/learningplatform-api.yaml 里的 Minio 段。
 type MinioConf struct {
-	Endpoint  string // MinIO 服务地址，如 127.0.0.1:9000
-	AccessKey string // 访问密钥
-	SecretKey string // 密钥
-	UseSSL    bool   // 是否使用 HTTPS 访问 MinIO
-	Bucket    string // 默认桶名（不存在会自动创建）
+	Endpoint       string // MinIO 服务地址（后端连接用）。容器内填服务名 minio:9000，本机填 127.0.0.1:9020
+	PublicEndpoint string // 对外访问地址（浏览器能打开的），用于拼接返回给前端的 URL；为空时退回 Endpoint
+	AccessKey      string // 访问密钥
+	SecretKey      string // 密钥
+	UseSSL         bool   // 是否使用 HTTPS 访问 MinIO
+	Bucket         string // 默认桶名（不存在会自动创建）
 }
 
 // UploadConf 上传大小限制（字节）。
 // 对应 etc/learningplatform-api.yaml 里的 Upload 段。
 type UploadConf struct {
 	MaxCoverBytes int64 // 封面原图大小上限（默认 5MB）
-	MaxVideoBytes int64 // 单个视频大小上限（默认 200MB）
+	MaxVideoBytes int64 // 单个视频大小上限（默认 500MB）
 }

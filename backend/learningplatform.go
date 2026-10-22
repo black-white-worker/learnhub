@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 
+	"learningplatform/internal/app/course"
 	"learningplatform/internal/config"
 	"learningplatform/internal/handler"
 	"learningplatform/internal/svc"
@@ -29,6 +30,10 @@ func main() {
 
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)
+
+	// 启动孤儿对象后台清理（每 10 分钟扫描一次 MinIO，
+	// 删除"上传成功但课程未引用"的残留封面/视频，网络波动兜底）
+	course.StartOrphanSweeper(ctx)
 
 	fmt.Printf("Starting server at %s:%d...\n", c.Host, c.Port)
 	server.Start()
