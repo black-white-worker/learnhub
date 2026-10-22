@@ -15,8 +15,8 @@ services:
       - "127.0.0.1:${DB_PORT}:3306"
     volumes:
       - mysql_data:/var/lib/mysql
-      # 首次启动自动执行建表 + 预置账号的 SQL
-      - ./backend/deploy/sql:/docker-entrypoint-initdb.d:ro
+      # 建表 / 预置账号的 SQL 已改由 Flyway 版本化管理（见 deploy/sql/migration），
+      # 不再挂载到 /docker-entrypoint-initdb.d，避免和 Flyway 重复执行。
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$${MYSQL_ROOT_PASSWORD} --silent"]
       interval: 10s
@@ -75,6 +75,25 @@ services:
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
       MINIO_BUCKET: ${MINIO_BUCKET}
 
+  # ===== Flyway 数据库迁移（版本化 SQL 管理） =====
+  # 在 backend 启动前执行 deploy/sql/migration 下的 V*.sql，
+  # 执行记录写在 flyway_schema_history 表，后续加表/改表只需新增 V2、V3...
+  flyway:
+    image: flyway/flyway:10.20.0-alpine
+    container_name: learningplatform-flyway
+    restart: "no"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    command:
+      - -url=jdbc:mysql://mysql:3306/${DB_NAME}?sslMode=DISABLED&allowPublicKeyRetrieval=true
+      - -user=root
+      - -password=${MYSQL_ROOT_PASSWORD}
+      - -connectRetries=30
+      - migrate
+    volumes:
+      - ./backend/deploy/sql/migration:/flyway/sql:ro
+
   # ===== 后端 API（go-zero） =====
   backend:
     build:
@@ -87,6 +106,8 @@ services:
       redis:
         condition: service_healthy
       minio-init:
+        condition: service_completed_successfully
+      flyway:
         condition: service_completed_successfully
     environment:
       # 容器内通过 docker 网络访问 mysql / redis 服务名
