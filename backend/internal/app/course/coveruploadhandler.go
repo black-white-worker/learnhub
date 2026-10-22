@@ -34,6 +34,12 @@ func CoverUploadHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			httpx.ErrorCtx(r.Context(), w, errors.New("courseId 必须是数字"))
 			return
 		}
+		// 前端没填课程名时不会带合法 courseId；这里兜底返回中文友好错误，
+		// 而不是让后面的"课程不存在"或框架默认英文错误暴露给用户
+		if courseId <= 0 {
+			httpx.ErrorCtx(r.Context(), w, errors.New("请先输入课程名称并创建课程，再上传封面"))
+			return
+		}
 
 		// 3. 封面文件（表单字段 file，单文件）
 		file, header, err := r.FormFile("file")

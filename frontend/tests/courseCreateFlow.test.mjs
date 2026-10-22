@@ -243,3 +243,25 @@ test('最终提交时兜底上传失败 → 返回对应错误，留在页面', 
   })
   assert.deepEqual(r, { error: '封面文件超过大小上限' })
 })
+
+// ===== 修复：未填课程名就点上传 → 友好提示，不发请求 =====
+
+test('未填课程名点上传封面 → 提示先输入课程名，且不调用创建/上传接口', async () => {
+  const { api, calls } = makeApi()
+  const session = makeSession()
+  const emptyForm = { name: '   ', intro: '', teacher: '' } // 全空白名
+  const r = await uploadCoverFlow(api, emptyForm, session, { name: 'a.jpg' })
+  assert.deepEqual(r, { error: '请先输入课程名称，再上传封面' })
+  assert.equal(calls.createCourse, 0) // 没发创建请求
+  assert.equal(calls.uploadCourseCover, 0) // 没发上传请求
+})
+
+test('未填课程名点上传视频 → 提示先输入课程名，且不发请求', async () => {
+  const { api, calls } = makeApi()
+  const session = makeSession()
+  const emptyForm = { name: '', intro: '', teacher: '' }
+  const r = await uploadVideosFlow(api, emptyForm, session, [{ name: 'v.mp4' }])
+  assert.deepEqual(r, { error: '请先输入课程名称，再上传视频' })
+  assert.equal(calls.createCourse, 0)
+  assert.equal(calls.uploadCourseVideos, 0)
+})

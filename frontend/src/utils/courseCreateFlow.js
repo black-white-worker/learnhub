@@ -23,10 +23,12 @@ export async function ensureCourseCreated(api, form, session) {
   }
 }
 
-// 封面：校验已选文件 → 确保课程存在 → 上传封面 → 记录结果
+// 封面：校验已选文件 → 校验课程名 → 确保课程存在 → 上传封面 → 记录结果
 // 成功返回 {ok:true}，失败返回 {error}
 export async function uploadCoverFlow(api, form, session, file) {
   if (!file) return { error: '请先选择封面图片' }
+  // 未填课程名就点上传封面：直接友好提示，不发请求（避免后端报一堆英文错误）
+  if (!form.name || !form.name.trim()) return { error: '请先输入课程名称，再上传封面' }
   const ensured = await ensureCourseCreated(api, form, session)
   if (ensured !== true) return ensured
   const fd = new FormData()
@@ -41,10 +43,11 @@ export async function uploadCoverFlow(api, form, session, file) {
   }
 }
 
-// 视频：校验已选文件 → 确保课程存在 → 上传视频 → 记录结果
+// 视频：校验已选文件 → 校验课程名 → 确保课程存在 → 上传视频 → 记录结果
 // 成功返回 {ok:true, count}，失败返回 {error}
 export async function uploadVideosFlow(api, form, session, files) {
   if (!files || files.length === 0) return { error: '请先选择视频文件' }
+  if (!form.name || !form.name.trim()) return { error: '请先输入课程名称，再上传视频' }
   const ensured = await ensureCourseCreated(api, form, session)
   if (ensured !== true) return ensured
   const fd = new FormData()
