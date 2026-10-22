@@ -39,6 +39,12 @@ const router = createRouter({
       // 课程列表页（来自「课程列表」分支）：展示 GET /api/course/list 返回的课程
       component: () => import('../views/CourseListView.vue'),
     },
+    {
+      path: '/course/:id',
+      name: 'course-detail',
+      // 课程详情页（来自「课程编辑」分支）：卡片点击进入，展示封面 / 基本信息 / 视频 / 资源
+      component: () => import('../views/CourseDetailView.vue'),
+    },
   ],
 })
 
