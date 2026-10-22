@@ -42,4 +42,22 @@ export function uploadCourseVideos(data) {
   return request.post('/course/upload/videos', data)
 }
 
+// ===== 以下为「课程资源」分支新增 =====
+
+// 上传课程文档资源（PPT / Word / PDF）：提交 FormData（courseId + file）
+// 成功返回 {courseId, resource: {id, name, url, size, type, uploadedAt}}
+export function uploadCourseResource(data) {
+  return request.post('/course/upload/resource', data)
+}
+
+// 课程资源列表：GET /api/course/resources/:courseId
+export function fetchCourseResources(courseId) {
+  return request.get(`/course/resources/${courseId}`)
+}
+
+// 删除课程资源：DELETE /api/course/resource/:courseId/:resourceId
+export function deleteCourseResource(courseId, resourceId) {
+  return request.delete(`/course/resource/${courseId}/${resourceId}`)
+}
+
 export default request

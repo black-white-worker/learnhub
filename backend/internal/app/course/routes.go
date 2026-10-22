@@ -40,6 +40,25 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/api/course/list",
 				Handler: ListHandler(serverCtx),
 			},
+			// ===== 以下为「课程资源」分支新增 =====
+			// 上传文档资源（PPT / Word / PDF）：POST /api/course/upload/resource
+			{
+				Method:  http.MethodPost,
+				Path:    "/api/course/upload/resource",
+				Handler: ResourceUploadHandler(serverCtx),
+			},
+			// 课程资源列表：GET /api/course/resources/:courseId
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/course/resources/:courseId",
+				Handler: ResourceListHandler(serverCtx),
+			},
+			// 删除课程资源：DELETE /api/course/resource/:courseId/:resourceId
+			{
+				Method:  http.MethodDelete,
+				Path:    "/api/course/resource/:courseId/:resourceId",
+				Handler: ResourceDeleteHandler(serverCtx),
+			},
 		},
 	)
 }
