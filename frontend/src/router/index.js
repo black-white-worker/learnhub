@@ -40,6 +40,12 @@ const router = createRouter({
       component: () => import('../views/CourseListView.vue'),
     },
     {
+      path: '/course/:id/watch/:videoId',
+      name: 'course-watch',
+      // 课程视频观看页（来自「课程观看」分支）：播放器 + 进度条 + 进度记忆
+      component: () => import('../views/CourseWatchView.vue'),
+    },
+    {
       path: '/course/:id/resources',
       name: 'course-resources',
       // 课程资源页（来自「课程资源」分支）：PPT / Word / PDF 讲义的上传与查看

@@ -102,11 +102,14 @@ func (l *VideoUploadLogic) UploadVideos(req *UploadVideosRequest) (resp *UploadV
 		uploadedObjects = append(uploadedObjects, objectName)
 
 		// 4.5 记录视频元信息（id 由 store.AddVideos 统一分配）
+		// 同时记下 courseId / objectName，供后续 faststart 转码（课程观看分支）下载源文件用
 		videos = append(videos, &Video{
 			Name:       f.FileName,
 			Url:        url,
 			Size:       f.Size,
 			UploadedAt: time.Now().Format(time.RFC3339),
+			courseId:   req.CourseId,
+			objectName: objectName,
 		})
 	}
 
@@ -116,7 +119,35 @@ func (l *VideoUploadLogic) UploadVideos(req *UploadVideosRequest) (resp *UploadV
 		return nil, err
 	}
 
+	// 6. 异步对每个新视频做 faststart 处理（不阻塞上传响应）。
+	// 处理成功后把视频 URL 换成 moov 前置版本，浏览器即可边下边播、拖动进度条。
+	// 任何失败都只记日志，继续用原 URL 播放。
+	for _, v := range videos {
+		go l.processFaststartAsync(v)
+	}
+
 	return &UploadVideosResponse{CourseId: req.CourseId, Videos: videos}, nil
+}
+
+// processFaststartAsync 在后台 goroutine 里对单个视频做 faststart 转码。
+// 用 context.Background()，不能用请求 ctx（请求已返回，ctx 会被取消）。
+func (l *VideoUploadLogic) processFaststartAsync(v *Video) {
+	defer func() {
+		if r := recover(); r != nil {
+			l.Logger.Errorf("faststart 处理 panic: %v", r)
+		}
+	}()
+
+	newURL, err := ProcessVideoFaststart(context.Background(), l.svcCtx, v)
+	if err != nil {
+		// ffmpeg 未安装 / 转码失败都不影响播放，原 URL 仍可用
+		l.Logger.Infof("视频 %d faststart 跳过：%v", v.Id, err)
+		return
+	}
+	// 替换 URL 并标记 faststarted
+	v.Url = newURL
+	v.Faststarted = true
+	l.Logger.Infof("视频 %d faststart 完成", v.Id)
 }
 
 // rollback 删除本次已上传到 MinIO 的对象（尽力而为，失败只记日志）。

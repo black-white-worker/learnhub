@@ -40,6 +40,25 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/api/course/list",
 				Handler: ListHandler(serverCtx),
 			},
+			// ===== 以下为「课程观看」分支新增 =====
+			// 获取视频播放信息：GET /api/course/video/play/:courseId/:videoId
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/course/video/play/:courseId/:videoId",
+				Handler: VideoPlayHandler(serverCtx),
+			},
+			// 上报播放进度：POST /api/course/video/progress/:courseId/:videoId
+			{
+				Method:  http.MethodPost,
+				Path:    "/api/course/video/progress/:courseId/:videoId",
+				Handler: SaveVideoProgressHandler(serverCtx),
+			},
+			// 读取播放进度：GET /api/course/video/progress/:courseId/:videoId
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/course/video/progress/:courseId/:videoId",
+				Handler: GetVideoProgressHandler(serverCtx),
+			},
 			// ===== 以下为「课程编辑」分支新增 =====
 			// 课程详情接口：GET /api/course/detail/:id（卡片点击进入详情页）
 			{

@@ -34,6 +34,10 @@ type ObjectStorage interface {
 	// 用于上传中途失败时回滚"孤儿对象"，避免 MinIO 里残留半成品文件。
 	RemoveObject(ctx context.Context, objectName string) error
 
+	// Download 下载对象，返回可读流。
+	// 供视频 faststart 转码时先把源视频拉到本地临时文件用（来自「课程观看」分支）。
+	Download(ctx context.Context, objectName string) (io.ReadCloser, error)
+
 	// ListObjects 列出指定前缀下的所有对象（递归），供孤儿对象清理扫描。
 	ListObjects(ctx context.Context, prefix string) ([]ObjectInfo, error)
 }
@@ -111,6 +115,15 @@ func (m *MinioStore) PutObject(ctx context.Context, objectName string, reader io
 // RemoveObject 删除对象。
 func (m *MinioStore) RemoveObject(ctx context.Context, objectName string) error {
 	return m.client.RemoveObject(ctx, m.bucket, objectName, minio.RemoveObjectOptions{})
+}
+
+// Download 下载对象，返回读取流。调用方用完需 Close。
+func (m *MinioStore) Download(ctx context.Context, objectName string) (io.ReadCloser, error) {
+	obj, err := m.client.GetObject(ctx, m.bucket, objectName, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("下载对象 %s 失败: %w", objectName, err)
+	}
+	return obj, nil
 }
 
 // ListObjects 列出桶内指定前缀（递归）下的所有对象及其最后修改时间。
