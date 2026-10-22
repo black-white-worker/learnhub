@@ -66,3 +66,39 @@ type UploadVideosResponse struct {
 type ListResponse struct {
 	Courses []*Course `json:"courses"`
 }
+
+// ===== 课程视频观看 / 进度（「课程观看」分支）=====
+
+// PlayVideoRequest 路径参数：课程 id + 视频 id。
+type PlayVideoRequest struct {
+	CourseId int `path:"courseId"`
+	VideoId  int `path:"videoId"`
+}
+
+// PlayVideoResponse 播放信息：返回视频元信息（Url 已是 faststart 直链）。
+type PlayVideoResponse struct {
+	Video *Video `json:"video"`
+}
+
+// SaveProgressRequest 保存播放进度请求：路径定位视频，body 带当前播放位置（秒）。
+type SaveProgressRequest struct {
+	CourseId int `path:"courseId"`
+	VideoId  int `path:"videoId"`
+	Position int `json:"position"`
+}
+
+// SaveProgressResponse 保存进度响应。
+type SaveProgressResponse struct {
+	Position int `json:"position"`
+}
+
+// GetProgressRequest 路径参数：课程 id + 视频 id。
+type GetProgressRequest struct {
+	CourseId int `path:"courseId"`
+	VideoId  int `path:"videoId"`
+}
+
+// GetProgressResponse 返回上次记住的播放位置（秒），没看过则为 0。
+type GetProgressResponse struct {
+	Position int `json:"position"`
+}

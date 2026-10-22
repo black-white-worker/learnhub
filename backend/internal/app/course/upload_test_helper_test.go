@@ -1,6 +1,7 @@
 package course
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -17,6 +18,7 @@ import (
 type fakeOss struct {
 	objects   map[string]string    // objectName -> url
 	createdAt map[string]time.Time // objectName -> 上传时间（孤儿清理测试用）
+	contents  map[string][]byte    // objectName -> 文件内容（Download 测试用）
 	removed   []string             // 被删除的对象名（按顺序记录）
 	putErr    error                // 恒定失败：让每次 PutObject 都失败
 	failOn    int                  // 第几次 PutObject 失败（从 1 起；0 表示不按次数失败）
@@ -27,6 +29,7 @@ func newFakeOss() *fakeOss {
 	return &fakeOss{
 		objects:   make(map[string]string),
 		createdAt: make(map[string]time.Time),
+		contents:  make(map[string][]byte),
 	}
 }
 
@@ -44,11 +47,22 @@ func (f *fakeOss) PutObject(ctx context.Context, objectName string, reader io.Re
 	f.objects[objectName] = url
 	f.createdAt[objectName] = time.Now()
 
-	// 模拟上传：把流读完（验证 reader 内容能被正常消费）
-	if _, err := io.Copy(io.Discard, reader); err != nil {
+	// 模拟上传：读出内容保存（供 Download 测试用）
+	data, err := io.ReadAll(reader)
+	if err != nil {
 		return "", err
 	}
+	f.contents[objectName] = data
 	return url, nil
+}
+
+// Download 模拟下载：返回之前 PutObject 存下的内容。
+func (f *fakeOss) Download(ctx context.Context, objectName string) (io.ReadCloser, error) {
+	data, ok := f.contents[objectName]
+	if !ok {
+		return nil, errors.New("对象不存在: " + objectName)
+	}
+	return io.NopCloser(bytes.NewReader(data)), nil
 }
 
 // RemoveObject 模拟删除：记录到 removed 列表，供断言回滚行为。

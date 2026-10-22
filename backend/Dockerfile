@@ -20,7 +20,8 @@ RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 GOOS=linux go 
 
 # 阶段二：只保留可执行文件和配置，镜像更小
 FROM alpine:3.21
-RUN apk add --no-cache tzdata ca-certificates \
+# ffmpeg 用于视频上传后的 faststart 转码（moov 前置，边下边播 / 可拖动进度条）
+RUN apk add --no-cache tzdata ca-certificates ffmpeg \
     && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 WORKDIR /app
 COPY --from=builder /build/learningplatform-api .

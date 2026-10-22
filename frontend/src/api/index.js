@@ -42,4 +42,21 @@ export function uploadCourseVideos(data) {
   return request.post('/course/upload/videos', data)
 }
 
+// ===== 以下为「课程观看」分支新增 =====
+
+// 获取视频播放信息：GET /api/course/video/play/:courseId/:videoId
+export function getVideoPlay(courseId, videoId) {
+  return request.get(`/course/video/play/${courseId}/${videoId}`)
+}
+
+// 上报播放进度（position 单位：秒）
+export function saveVideoProgress(courseId, videoId, position) {
+  return request.post(`/course/video/progress/${courseId}/${videoId}`, { position })
+}
+
+// 读取上次播放进度（秒）
+export function fetchVideoProgress(courseId, videoId) {
+  return request.get(`/course/video/progress/${courseId}/${videoId}`)
+}
+
 export default request

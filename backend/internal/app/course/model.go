@@ -33,6 +33,12 @@ type Video struct {
 	Url        string `json:"url"`
 	Size       int64  `json:"size"`
 	UploadedAt string `json:"uploadedAt"`
+
+	// 以下为「课程观看」分支新增
+	Faststarted bool `json:"faststarted"` // 是否已生成 moov 前置（+faststart）版本
+
+	courseId   int    // 所属课程 id（内部用，不序列化）
+	objectName string // 源视频在 MinIO 内的对象路径（内部用，不序列化）
 }
 
 // courseStore 内存课程存储（教学版）：
@@ -142,4 +148,21 @@ func (s *courseStore) List() []*Course {
 		result = append(result, s.courses[id])
 	}
 	return result
+}
+
+// FindVideo 在指定课程下按视频 id 找视频（课程观看分支：播放 / 进度用）。
+// 课程或视频不存在时返回错误。
+func (s *courseStore) FindVideo(courseId, videoId int) (*Video, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	c, ok := s.courses[courseId]
+	if !ok {
+		return nil, errors.New("课程不存在")
+	}
+	for _, v := range c.Videos {
+		if v.Id == videoId {
+			return v, nil
+		}
+	}
+	return nil, errors.New("视频不存在")
 }
