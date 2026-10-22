@@ -66,3 +66,53 @@ type UploadVideosResponse struct {
 type ListResponse struct {
 	Courses []*Course `json:"courses"`
 }
+
+// ===== 课程编辑接口 PUT /api/course/edit =====
+
+// EditCourseRequest 编辑课程基本信息请求体。
+// Id 定位要编辑的课程；Name 必填（重名校验排除自身）；Intro / Teacher 可空。
+type EditCourseRequest struct {
+	Id      int    `json:"id"`
+	Name    string `json:"name"`
+	Intro   string `json:"intro"`
+	Teacher string `json:"teacher"`
+}
+
+// EditCourseResponse 编辑课程响应体：返回更新后的课程基本信息。
+type EditCourseResponse struct {
+	Id      int    `json:"id"`
+	Name    string `json:"name"`
+	Intro   string `json:"intro"`
+	Teacher string `json:"teacher"`
+}
+
+// ===== 课程详情接口 GET /api/course/detail/:id =====
+
+// CourseDetailRequest 路径参数：要查看的课程 id。
+type CourseDetailRequest struct {
+	Id int `path:"id"`
+}
+
+// CourseDetailResponse 课程详情响应体：
+// 比列表多返回封面原图 / 缩略图 / 完整视频列表，供课程详情页使用。
+type CourseDetailResponse struct {
+	Id            int      `json:"id"`
+	Name          string   `json:"name"`
+	Intro         string   `json:"intro"`
+	Teacher       string   `json:"teacher"`
+	CoverUrl      string   `json:"coverUrl"`
+	CoverThumbUrl string   `json:"coverThumbUrl"`
+	Videos        []*Video `json:"videos"`
+}
+
+// ===== 课程删除接口 DELETE /api/course/delete/:id =====
+
+// DeleteCourseRequest 路径参数：要删除的课程 id。
+type DeleteCourseRequest struct {
+	Id int `path:"id"`
+}
+
+// DeleteCourseResponse 删除课程响应体。
+type DeleteCourseResponse struct {
+	Id int `json:"id"`
+}

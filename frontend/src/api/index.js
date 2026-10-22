@@ -42,4 +42,22 @@ export function uploadCourseVideos(data) {
   return request.post('/course/upload/videos', data)
 }
 
+// ===== 以下为「课程编辑」分支新增 =====
+
+// 课程详情接口：GET /api/course/detail/:id
+// 成功返回课程完整信息（封面 / 视频列表），供课程详情页使用
+export function getCourseDetail(id) {
+  return request.get(`/course/detail/${id}`)
+}
+
+// 编辑课程基本信息：PUT /api/course/edit，提交 {id, name, intro, teacher}
+export function editCourse(data) {
+  return request.put('/course/edit', data)
+}
+
+// 删除课程：DELETE /api/course/delete/:id
+export function deleteCourse(id) {
+  return request.delete(`/course/delete/${id}`)
+}
+
 export default request

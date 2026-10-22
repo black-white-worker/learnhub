@@ -40,6 +40,25 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/api/course/list",
 				Handler: ListHandler(serverCtx),
 			},
+			// ===== 以下为「课程编辑」分支新增 =====
+			// 课程详情接口：GET /api/course/detail/:id（卡片点击进入详情页）
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/course/detail/:id",
+				Handler: CourseDetailHandler(serverCtx),
+			},
+			// 编辑课程基本信息：PUT /api/course/edit（name / intro / teacher）
+			{
+				Method:  http.MethodPut,
+				Path:    "/api/course/edit",
+				Handler: EditCourseHandler(serverCtx),
+			},
+			// 删除课程：DELETE /api/course/delete/:id
+			{
+				Method:  http.MethodDelete,
+				Path:    "/api/course/delete/:id",
+				Handler: DeleteCourseHandler(serverCtx),
+			},
 		},
 	)
 }

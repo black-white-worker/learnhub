@@ -128,6 +128,49 @@ func (s *courseStore) AddVideos(id int, videos []*Video) error {
 	return nil
 }
 
+// UpdateCourse 更新课程基本信息（课程编辑功能用，来自「课程编辑」分支）。
+// 课程不存在报错；课程名称必填；重名校验时排除课程自身，
+// 这样"改名后点保存、名字没变"也不会误判成重名。
+func (s *courseStore) UpdateCourse(id int, name, intro, teacher string) (*Course, error) {
+	if name == "" {
+		return nil, errors.New("课程名称不能为空")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	c, ok := s.courses[id]
+	if !ok {
+		return nil, errors.New("课程不存在")
+	}
+
+	// 重名校验：发现别的课程已经叫这个名字就拒绝
+	for _, other := range s.courses {
+		if other.Id != id && other.Name == name {
+			return nil, errors.New("课程名称已存在")
+		}
+	}
+
+	c.Name = name
+	c.Intro = intro
+	c.Teacher = teacher
+	return c, nil
+}
+
+// DeleteCourse 删除一门课程（课程删除功能用，来自「课程编辑」分支）。
+// 只删内存里的课程元信息；MinIO 里的封面 / 视频对象由孤儿清理器兜底回收，
+// 避免这里再写一套对象删除逻辑、和上传回滚逻辑重复。
+func (s *courseStore) DeleteCourse(id int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.courses[id]; !ok {
+		return errors.New("课程不存在")
+	}
+	delete(s.courses, id)
+	return nil
+}
+
 // List 返回全部课程（按 id 升序），课程列表接口用（来自「课程列表」分支）。
 // map 的遍历顺序不固定，这里先收集 id 排序再取值，保证返回顺序稳定。
 func (s *courseStore) List() []*Course {
