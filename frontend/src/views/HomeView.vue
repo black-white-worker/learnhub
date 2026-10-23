@@ -24,12 +24,14 @@ async function loadCourses() {
 
 onMounted(loadCourses)
 
-// 搜索框真实过滤课程名 / 教师
+// 搜索框真实过滤课程名 / 教师（大小写不敏感）
 const filteredCourses = computed(() => {
-  const kw = keyword.value.trim()
+  const kw = keyword.value.trim().toLowerCase()
   if (!kw) return courses.value
   return courses.value.filter(
-    (c) => c.name.includes(kw) || (c.teacher || '').includes(kw),
+    (c) =>
+      (c.name || '').toLowerCase().includes(kw) ||
+      (c.teacher || '').toLowerCase().includes(kw),
   )
 })
 

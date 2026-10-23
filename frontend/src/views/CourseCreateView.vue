@@ -54,6 +54,7 @@ const coverResult = ref(null) // 上传成功后的 {coverUrl, coverThumbUrl}
 const videoFiles = ref([])    // 待上传的视频文件列表（File 对象数组）
 const videoUploading = ref(false)
 const videoResult = ref([])   // 上传成功后的视频列表 [{id, name, url, size, uploadedAt}]
+const videoUploadRef = ref(null) // el-upload 组件引用，用于上传后清空已选文件
 
 // ===== 传给流程函数的接口与状态容器 =====
 // 状态容器持有各 ref 的引用，流程函数内部直接改 .value，
@@ -145,6 +146,10 @@ async function handleUploadVideos() {
 
   if (result.ok) {
     ElMessage.success(`成功上传 ${result.count} 个视频`)
+    // 上传成功后清空"待上传"列表和 el-upload 内部文件列表，
+    // 否则下次再选新文件时，旧文件会被 el-upload 一起带上、重复上传
+    videoFiles.value = []
+    if (videoUploadRef.value) videoUploadRef.value.clearFiles()
   } else {
     // 失败留在页面，提示对应错误
     ElMessage.error(result.error)
@@ -210,6 +215,7 @@ function formatSize(bytes) {
       <el-form label-width="76px">
         <el-form-item label="课程视频">
           <el-upload
+            ref="videoUploadRef"
             accept="video/*"
             multiple
             :auto-upload="false"

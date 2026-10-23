@@ -18,7 +18,7 @@ func TestVideoUploadLogic_Success(t *testing.T) {
 	ctx := newUploadTestSvcCtx()
 	l := NewVideoUploadLogic(context.Background(), ctx)
 
-	c, err := store.AddCourse("MinIO 视频测试课程", "", "")
+	c, err := store.AddCourse("MinIO 视频测试课程", "", "", "tester")
 	if err != nil {
 		t.Fatalf("准备课程失败: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestVideoUploadLogic_EmptyFiles(t *testing.T) {
 	ctx := newUploadTestSvcCtx()
 	l := NewVideoUploadLogic(context.Background(), ctx)
 
-	c, _ := store.AddCourse("MinIO 视频空列表", "", "")
+	c, _ := store.AddCourse("MinIO 视频空列表", "", "", "tester")
 	_, err := l.UploadVideos(&UploadVideosRequest{CourseId: c.Id, Files: nil})
 	if err == nil {
 		t.Fatal("期望至少上传一个文件时报错，却没有报错")
@@ -101,7 +101,7 @@ func TestVideoUploadLogic_RollbackOnBadFile(t *testing.T) {
 	fake := ctx.Oss.(*fakeOss)
 	l := NewVideoUploadLogic(context.Background(), ctx)
 
-	c, _ := store.AddCourse("MinIO 视频回滚", "", "")
+	c, _ := store.AddCourse("MinIO 视频回滚", "", "", "tester")
 	_, err := l.UploadVideos(&UploadVideosRequest{
 		CourseId: c.Id,
 		Files: []*UploadFile{
@@ -129,7 +129,7 @@ func TestVideoUploadLogic_BadMagic(t *testing.T) {
 	ctx := newUploadTestSvcCtx()
 	l := NewVideoUploadLogic(context.Background(), ctx)
 
-	c, _ := store.AddCourse("MinIO 视频坏魔数", "", "")
+	c, _ := store.AddCourse("MinIO 视频坏魔数", "", "", "tester")
 	_, err := l.UploadVideos(&UploadVideosRequest{
 		CourseId: c.Id,
 		Files: []*UploadFile{
@@ -147,7 +147,7 @@ func TestVideoUploadLogic_TooLarge(t *testing.T) {
 	ctx.Config.Upload.MaxVideoBytes = 100 // 把上限调小，便于构造超限数据
 	l := NewVideoUploadLogic(context.Background(), ctx)
 
-	c, _ := store.AddCourse("MinIO 视频过大", "", "")
+	c, _ := store.AddCourse("MinIO 视频过大", "", "", "tester")
 	_, err := l.UploadVideos(&UploadVideosRequest{
 		CourseId: c.Id,
 		Files: []*UploadFile{
@@ -164,7 +164,7 @@ func TestVideoUploadLogic_EmptyFile(t *testing.T) {
 	ctx := newUploadTestSvcCtx()
 	l := NewVideoUploadLogic(context.Background(), ctx)
 
-	c, _ := store.AddCourse("MinIO 视频空文件", "", "")
+	c, _ := store.AddCourse("MinIO 视频空文件", "", "", "tester")
 	_, err := l.UploadVideos(&UploadVideosRequest{
 		CourseId: c.Id,
 		Files: []*UploadFile{

@@ -47,6 +47,7 @@ func (l *CourseDetailLogic) Detail(req *CourseDetailRequest) (resp *CourseDetail
 		Name:          c.Name,
 		Intro:         c.Intro,
 		Teacher:       c.Teacher,
+		CreatedBy:     c.CreatedBy,
 		CoverUrl:      c.CoverUrl,
 		CoverThumbUrl: c.CoverThumbUrl,
 		Videos:        videos,

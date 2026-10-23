@@ -12,7 +12,7 @@ import (
 // 辅助：新建一门课程并返回它的 id。
 func mustAddTempCourse(t *testing.T, name string) int {
 	t.Helper()
-	c, err := store.AddCourse(name, "临时简介", "临时老师")
+	c, err := store.AddCourse(name, "临时简介", "临时老师", "tester")
 	if err != nil {
 		t.Fatalf("临时建课 %s 失败: %v", name, err)
 	}

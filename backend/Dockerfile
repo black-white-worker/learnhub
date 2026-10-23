@@ -19,12 +19,21 @@ COPY . .
 RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 GOOS=linux go build -trimpath -o learningplatform-api learningplatform.go
 
 # 阶段二：只保留可执行文件和配置，镜像更小
+# ffmpeg 静态二进制：直接从静态镜像 COPY 进来（Linux ELF，单文件），
+# 避免在 alpine 里 apk add ffmpeg 时解包 113 个编解码依赖包，build 更快。
+FROM mwader/static-ffmpeg:6.1 AS ffmpeg
+
 FROM alpine:3.21
-# ffmpeg 用于视频上传后的 faststart 转码（moov 前置，边下边播 / 可拖动进度条）
-RUN apk add --no-cache tzdata ca-certificates ffmpeg \
+# 装时区、根证书、LibreOffice（docx/pptx 转 PDF 预览）、中文字体（否则转出的 PDF 中文是方框）
+RUN apk add --no-cache tzdata ca-certificates \
+    libreoffice-writer libreoffice-impress \
+    font-noto-cjk \
     && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 WORKDIR /app
 COPY --from=builder /build/learningplatform-api .
 COPY --from=builder /build/etc/learningplatform-api.yaml ./etc/learningplatform-api.yaml
+# 静态 ffmpeg / ffprobe，放进 PATH 即可被 Go 代码 exec.Command("ffmpeg", ...) 调用
+COPY --from=ffmpeg /ffmpeg /usr/local/bin/ffmpeg
+COPY --from=ffmpeg /ffprobe /usr/local/bin/ffprobe
 EXPOSE 8888
 CMD ["./learningplatform-api", "-f", "etc/learningplatform-api.yaml"]

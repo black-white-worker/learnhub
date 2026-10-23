@@ -24,7 +24,7 @@ func TestSweepOrphans_RemovesUnreferenced(t *testing.T) {
 	oss.backdate(orphanName, 30*time.Minute)
 
 	// 2. 新建一门课程，并让它引用一个封面对象（被引用 → 应保留）
-	c, err := store.AddCourse("孤儿清理测试课", "", "")
+	c, err := store.AddCourse("孤儿清理测试课", "", "", "tester")
 	if err != nil {
 		t.Fatalf("造课程失败: %v", err)
 	}

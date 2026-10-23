@@ -144,7 +144,10 @@ func (l *VideoUploadLogic) processFaststartAsync(v *Video) {
 		l.Logger.Infof("视频 %d faststart 跳过：%v", v.Id, err)
 		return
 	}
-	// 替换 URL 并标记 faststarted
+	// 替换 URL 并标记 faststarted（持久化到 DB，内存对象同步改）
+	if err := store.MarkVideoFaststart(v.courseId, v.Id, newURL); err != nil {
+		l.Logger.Errorf("视频 %d faststart 标记落库失败: %v", v.Id, err)
+	}
 	v.Url = newURL
 	v.Faststarted = true
 	l.Logger.Infof("视频 %d faststart 完成", v.Id)

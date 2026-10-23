@@ -14,6 +14,12 @@ import (
 // 注意：810fb6d 合并时本文件被误提交为空文件（编辑器操作导致），
 // 由后续修复提交恢复为 4 条路由版本。
 func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
+	// 生产环境：把课程存储从内存实现切换为 MySQL 实现（持久化）。
+	// 测试环境不会走到这里（newTestSvcCtx 不带 CourseStore，store 仍是内存版）。
+	if serverCtx.CourseStore != nil {
+		InitCourseStore(serverCtx.CourseStore)
+	}
+
 	server.AddRoutes(
 		[]rest.Route{
 			// 课程创建接口（来自「课程创建」分支）
@@ -96,6 +102,13 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Method:  http.MethodDelete,
 				Path:    "/api/course/resource/:courseId/:resourceId",
 				Handler: ResourceDeleteHandler(serverCtx),
+			},
+			// 资源在线预览：GET /api/course/resource/preview/:courseId/:resourceId
+			// PDF 直跳 MinIO，docx/pptx 后端用 LibreOffice 转 PDF 后流式返回
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/course/resource/preview/:courseId/:resourceId",
+				Handler: ResourcePreviewHandler(serverCtx),
 			},
 		},
 	)

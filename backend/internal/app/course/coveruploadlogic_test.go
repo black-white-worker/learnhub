@@ -31,7 +31,7 @@ func TestCoverUploadLogic_Success(t *testing.T) {
 	l := NewCoverUploadLogic(context.Background(), ctx)
 
 	// 先创建一门课程（用唯一名称，避免与其它测试互相影响）
-	c, err := store.AddCourse("MinIO 封面测试课程", "测试封面上传", "测试老师")
+	c, err := store.AddCourse("MinIO 封面测试课程", "测试封面上传", "测试老师", "tester")
 	if err != nil {
 		t.Fatalf("准备课程失败: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestCoverUploadLogic_BadMagic(t *testing.T) {
 	ctx := newUploadTestSvcCtx()
 	l := NewCoverUploadLogic(context.Background(), ctx)
 
-	c, _ := store.AddCourse("MinIO 封面坏魔数", "", "")
+	c, _ := store.AddCourse("MinIO 封面坏魔数", "", "", "tester")
 	_, err := l.UploadCover(&UploadCoverRequest{
 		CourseId:  c.Id,
 		FileName:  "cover.png", // 扩展名是图片，但内容不是
@@ -105,7 +105,7 @@ func TestCoverUploadLogic_TooLarge(t *testing.T) {
 	ctx.Config.Upload.MaxCoverBytes = 100 // 把上限调小，便于构造超限数据
 	l := NewCoverUploadLogic(context.Background(), ctx)
 
-	c, _ := store.AddCourse("MinIO 封面过大", "", "")
+	c, _ := store.AddCourse("MinIO 封面过大", "", "", "tester")
 	big := bytes.Repeat([]byte{0xFF}, 101) // 101 字节，超过 100
 	_, err := l.UploadCover(&UploadCoverRequest{
 		CourseId:  c.Id,
@@ -124,7 +124,7 @@ func TestCoverUploadLogic_RollbackThumbFail(t *testing.T) {
 	fake.failOn = 2 // 第 2 次 PutObject（缩略图）失败
 	l := NewCoverUploadLogic(context.Background(), ctx)
 
-	c, _ := store.AddCourse("MinIO 封面回滚", "", "")
+	c, _ := store.AddCourse("MinIO 封面回滚", "", "", "tester")
 	_, err := l.UploadCover(&UploadCoverRequest{
 		CourseId:  c.Id,
 		FileName:  "cover.png",

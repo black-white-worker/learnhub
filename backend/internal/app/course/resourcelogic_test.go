@@ -10,7 +10,7 @@ import (
 
 func mustAddTempCourseForResource(t *testing.T, name string) int {
 	t.Helper()
-	c, err := store.AddCourse(name, "资源测试", "老师")
+	c, err := store.AddCourse(name, "资源测试", "老师", "tester")
 	if err != nil {
 		t.Fatalf("建课失败: %v", err)
 	}

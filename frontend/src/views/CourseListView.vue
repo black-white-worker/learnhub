@@ -1,8 +1,8 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { fetchCourseList, deleteCourse } from '../api/index.js'
+import { ElMessage } from 'element-plus'
+import { fetchCourseList } from '../api/index.js'
 
 const router = useRouter()
 
@@ -24,37 +24,9 @@ async function loadCourses() {
 
 onMounted(loadCourses)
 
-// 点击卡片 → 进入课程详情页
+// 点击卡片 → 进入课程详情页（编辑/删除都在详情页里操作）
 function goDetail(course) {
   router.push(`/course/${course.id}`)
-}
-
-// 编辑按钮 → 进详情页（详情页内置编辑表单）
-function onEdit(course, ev) {
-  ev.stopPropagation()
-  router.push(`/course/${course.id}?action=edit`)
-}
-
-// 删除按钮：二次确认后调用删除接口，成功刷新列表
-async function onDelete(course, ev) {
-  ev.stopPropagation()
-  try {
-    await ElMessageBox.confirm(
-      `确定要删除课程《${course.name}》吗？课程下的封面 / 视频文件会被后台自动清理。`,
-      '删除课程',
-      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
-    )
-  } catch {
-    return // 用户点取消
-  }
-
-  try {
-    await deleteCourse(course.id)
-    ElMessage.success('课程已删除')
-    loadCourses()
-  } catch (e) {
-    ElMessage.error('删除失败：' + (e.response?.data?.msg || e.message))
-  }
 }
 
 // 封面缺省时的兜底底色（按课程名 hash 取一个柔和色）
@@ -93,10 +65,6 @@ function coverBg(course) {
         <div class="cover" :style="c.coverThumbUrl ? {} : { background: coverBg(c) }">
           <img v-if="c.coverThumbUrl" :src="c.coverThumbUrl" :alt="c.name" />
           <span v-else class="cover-placeholder">{{ c.name.slice(0, 1) }}</span>
-          <div class="cover-actions" @click.stop>
-            <el-button size="small" type="primary" plain @click="onEdit(c, $event)">编辑</el-button>
-            <el-button size="small" type="danger" plain @click="onDelete(c, $event)">删除</el-button>
-          </div>
         </div>
         <div class="body">
           <h3 class="title">{{ c.name }}</h3>
@@ -171,23 +139,6 @@ function coverBg(course) {
   font-size: 44px;
   color: rgba(255, 255, 255, 0.92);
   font-weight: 700;
-}
-
-/* 封面悬浮时浮出「编辑 / 删除」按钮 */
-.cover-actions {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  background: rgba(0, 0, 0, 0.35);
-  opacity: 0;
-  transition: opacity 0.2s;
-}
-
-.cover:hover .cover-actions {
-  opacity: 1;
 }
 
 .body {

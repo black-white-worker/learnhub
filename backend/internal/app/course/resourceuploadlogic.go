@@ -72,6 +72,7 @@ func (l *ResourceUploadLogic) UploadResource(req *UploadResourceRequest) (resp *
 	res := &Resource{
 		Name:       req.FileName,
 		Url:        url,
+		ObjectName: objectName,
 		Size:       int64(len(req.FileBytes)),
 		Type:       resourceTypeByExt(ext),
 		UploadedAt: time.Now().Format(time.RFC3339),

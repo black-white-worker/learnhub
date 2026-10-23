@@ -90,6 +90,9 @@ services:
       - -user=root
       - -password=${MYSQL_ROOT_PASSWORD}
       - -connectRetries=30
+      # 现有库是旧 initdb 建的、非空但没有 flyway_schema_history，
+      # 让 flyway 先把现有状态 baseline 成基线版本，再继续执行 V1
+      - -baselineOnMigrate=true
       - migrate
     volumes:
       - ./backend/deploy/sql/migration:/flyway/sql:ro

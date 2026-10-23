@@ -33,8 +33,8 @@ func (l *CreateLogic) Create(req *CreateRequest) (resp *CreateResponse, err erro
 		return nil, errors.New("课程名称不能为空")
 	}
 
-	// 2. 写入课程存储（重复课程名由 AddCourse 拦截）
-	course, err := store.AddCourse(req.Name, req.Intro, req.Teacher)
+	// 2. 写入课程存储（重复课程名由 AddCourse 拦截），记录创建者
+	course, err := store.AddCourse(req.Name, req.Intro, req.Teacher, req.CreatedBy)
 	if err != nil {
 		return nil, err
 	}

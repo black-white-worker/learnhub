@@ -5,11 +5,12 @@ import "io"
 // ===== 课程创建接口 POST /api/course/create =====
 
 // CreateRequest 创建课程请求体。
-// 课程名称必填，简介和教师可空。
+// 课程名称必填，简介和教师可空；createdBy 由前端从登录态带入，记录创建者。
 type CreateRequest struct {
-	Name    string `json:"name"`
-	Intro   string `json:"intro"`
-	Teacher string `json:"teacher"`
+	Name      string `json:"name"`
+	Intro     string `json:"intro"`
+	Teacher   string `json:"teacher"`
+	CreatedBy string `json:"createdBy"`
 }
 
 // CreateResponse 创建课程响应体。
@@ -136,6 +137,7 @@ type CourseDetailResponse struct {
 	Name          string   `json:"name"`
 	Intro         string   `json:"intro"`
 	Teacher       string   `json:"teacher"`
+	CreatedBy     string   `json:"createdBy"`
 	CoverUrl      string   `json:"coverUrl"`
 	CoverThumbUrl string   `json:"coverThumbUrl"`
 	Videos        []*Video `json:"videos"`
@@ -161,6 +163,7 @@ type Resource struct {
 	Id         int    `json:"id"`
 	Name       string `json:"name"`       // 原始文件名（带扩展名）
 	Url        string `json:"url"`        // MinIO 直链（浏览器可直接打开 / 下载）
+	ObjectName string `json:"-"`          // MinIO 桶内路径（后端转预览用，不暴露给前端）
 	Size       int64  `json:"size"`       // 文件大小（字节）
 	Type       string `json:"type"`       // 资源类型：pdf / ppt / pptx / doc / docx
 	UploadedAt string `json:"uploadedAt"` // 上传时间（RFC3339）

@@ -38,7 +38,7 @@ func TestBuildFaststartArgs_CommonCodecs(t *testing.T) {
 
 // 播放：先造一门课 + 一个视频，再取
 func TestVideoPlay_Success(t *testing.T) {
-	c, _ := store.AddCourse("观看测试课", "", "")
+	c, _ := store.AddCourse("观看测试课", "", "", "tester")
 	_ = store.AddVideos(c.Id, []*Video{{Name: "a.mp4", Url: "http://x/a.mp4", Size: 10}})
 
 	l := NewVideoPlayLogic(context.Background(), newTestSvcCtx())

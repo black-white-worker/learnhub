@@ -12,6 +12,8 @@ import {
 // 既可以放在课程详情页的"课程资源"tab，也可以独立成页使用。
 const props = defineProps({
   courseId: { type: [Number, String], required: true },
+  // 是否允许上传 / 删除（课程创建者才传 true）
+  canEdit: { type: Boolean, default: true },
 })
 
 const resources = ref([])
@@ -105,6 +107,7 @@ function typeTag(type) {
     <div class="panel-head">
       <span class="tip">支持 PDF / PPT / Word 讲义</span>
       <el-upload
+        v-if="canEdit"
         ref="fileInput"
         :auto-upload="false"
         :show-file-list="false"
@@ -121,10 +124,12 @@ function typeTag(type) {
           {{ typeTag(r.type).text }}
         </span>
         <div class="res-meta">
-          <a class="res-name" :href="r.url" target="_blank" rel="noopener">{{ r.name }}</a>
+          <span class="res-name">{{ r.name }}</span>
           <span class="res-sub">{{ formatSize(r.size) }} · {{ r.uploadedAt }}</span>
         </div>
-        <el-button size="small" type="primary" link @click="onDelete(r)">删除</el-button>
+        <a :href="`/api/course/resource/preview/${courseId}/${r.id}`" target="_blank" rel="noopener" class="res-btn">预览</a>
+        <a :href="r.url" :download="r.name" class="res-btn res-btn-download">下载</a>
+        <el-button v-if="canEdit" size="small" type="primary" link @click="onDelete(r)">删除</el-button>
       </div>
     </div>
     <el-empty v-else-if="!loading" description="暂无资源，上传课件讲义吧" />
@@ -187,18 +192,37 @@ function typeTag(type) {
 .res-name {
   font-size: 14px;
   color: #1f2937;
-  text-decoration: none;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.res-name:hover {
-  color: var(--el-color-primary);
-}
-
 .res-sub {
   font-size: 12px;
   color: #9ca3af;
+}
+
+.res-btn {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: #2563eb;
+  text-decoration: none;
+  padding: 4px 10px;
+  border: 1px solid #d6e0f5;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+
+.res-btn:hover {
+  background: #eff6ff;
+}
+
+.res-btn-download {
+  color: #059669;
+  border-color: #d1fae5;
+}
+
+.res-btn-download:hover {
+  background: #ecfdf5;
 }
 </style>

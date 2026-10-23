@@ -14,6 +14,7 @@ export async function ensureCourseCreated(api, form, session) {
       name: form.name,
       intro: form.intro,
       teacher: form.teacher,
+      createdBy: localStorage.getItem('username') || '',
     })
     session.createdId.value = res.data.id
     session.createdName.value = res.data.name

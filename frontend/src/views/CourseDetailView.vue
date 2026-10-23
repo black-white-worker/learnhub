@@ -1,9 +1,10 @@
 <script setup>
 import { ref, reactive, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { VideoPlay } from '@element-plus/icons-vue'
-import { getCourseDetail, editCourse } from '../api/index.js'
+import { getCourseDetail, editCourse, deleteCourse } from '../api/index.js'
+import CourseResourcePanel from '../components/CourseResourcePanel.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -79,6 +80,34 @@ function goWatch(video) {
   router.push(`/course/${courseId.value}/watch/${video.id}`)
 }
 
+// 是否是课程创建者：只有创建者才能编辑 / 删除 / 上传。
+// createdBy 为空（未知归属）时一律视为非创建者，只读。
+const isOwner = computed(() => {
+  if (!detail.value) return false
+  const me = localStorage.getItem('username') || ''
+  return !!me && me === detail.value.createdBy
+})
+
+// 删除课程：二次确认后调接口，成功跳回列表
+async function onDelete() {
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除课程《${detail.value.name}》吗？课程下的视频 / 资源会一并清理。`,
+      '删除课程',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  try {
+    await deleteCourse(courseId.value)
+    ElMessage.success('课程已删除')
+    router.push('/courses')
+  } catch (e) {
+    ElMessage.error('删除失败：' + (e.response?.data?.msg || e.message))
+  }
+}
+
 function formatSize(bytes) {
   if (bytes == null) return '-'
   const units = ['B', 'KB', 'MB', 'GB']
@@ -105,8 +134,13 @@ function formatSize(bytes) {
           <template v-if="!editing">
             <h1 class="name">{{ detail.name }}</h1>
             <p class="teacher">授课教师：{{ detail.teacher || '未设置' }}</p>
+            <p class="creator">创建者：{{ detail.createdBy || '系统预置' }}</p>
             <p class="intro">{{ detail.intro || '暂无简介' }}</p>
-            <el-button type="primary" plain @click="startEdit">编辑课程信息</el-button>
+            <div v-if="isOwner" class="owner-actions">
+              <el-button type="primary" plain @click="startEdit">编辑课程信息</el-button>
+              <el-button type="danger" plain @click="onDelete">删除课程</el-button>
+            </div>
+            <span v-else class="viewer-tip">仅可浏览，编辑 / 上传需课程创建者操作</span>
           </template>
 
           <!-- 编辑模式 -->
@@ -150,8 +184,7 @@ function formatSize(bytes) {
         </el-tab-pane>
 
         <el-tab-pane label="课程资源" name="resources">
-          <!-- 课程资源分支：此处替换为 <CourseResourcePanel :course-id="courseId" /> -->
-          <el-empty description="课程讲义 / PPT / 文档资源即将上线" />
+          <CourseResourcePanel :course-id="courseId" :can-edit="isOwner" />
         </el-tab-pane>
       </el-tabs>
     </template>
@@ -214,6 +247,12 @@ function formatSize(bytes) {
 .teacher {
   color: #6b7280;
   font-size: 14px;
+  margin: 0 0 4px;
+}
+
+.creator {
+  color: #9ca3af;
+  font-size: 13px;
   margin: 0 0 10px;
 }
 
@@ -222,6 +261,16 @@ function formatSize(bytes) {
   font-size: 14px;
   line-height: 1.7;
   margin: 0 0 14px;
+}
+
+.owner-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.viewer-tip {
+  font-size: 13px;
+  color: #9ca3af;
 }
 
 .tabs {
