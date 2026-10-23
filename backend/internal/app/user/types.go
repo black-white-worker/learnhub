@@ -32,3 +32,16 @@ type RegisterRequest struct {
 type RegisterResponse struct {
 	Username string `json:"username"`
 }
+
+// ===== 登出接口 POST /api/user/logout（需登录，token 放在 Authorization 头） =====
+
+type LogoutResponse struct {
+	Username string `json:"username"`
+}
+
+// ===== 当前用户信息接口 GET /api/user/info（需登录） =====
+
+type InfoResponse struct {
+	Username string `json:"username"`
+	Nickname string `json:"nickname"`
+}

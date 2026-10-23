@@ -1,0 +1,150 @@
+services:
+  # ===== MySQL 数据库 =====
+  mysql:
+    image: mysql:8.4
+    container_name: learningplatform-mysql
+    restart: unless-stopped
+    # 强制服务端字符集 utf8mb4，避免客户端连接默认 latin1 导致中文乱码
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    environment:
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_ROOT_HOST: "%"
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:${DB_PORT}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      # 建表 / 预置账号的 SQL 已改由 Flyway 版本化管理（见 deploy/sql/migration），
+      # 不再挂载到 /docker-entrypoint-initdb.d，避免和 Flyway 重复执行。
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  # ===== Redis 缓存 =====
+  redis:
+    image: redis:7.4-alpine
+    container_name: learningplatform-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  # ===== MinIO 对象存储（课程封面 / 缩略图 / 视频）=====
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: learningplatform-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+      MINIO_API_CORS_ALLOW_ORIGIN: "*"
+    ports:
+      - "${MINIO_API_PORT:-9020}:9000"                 # API（后端上传 + 浏览器直读对象）
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9021}:9001"   # 管理控制台
+    volumes:
+      - minio_data:/data
+
+  # MinIO 初始化：建桶 + 开放 course/ 前缀公开读（浏览器才能直接打开图片/视频）
+  minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    restart: "no"
+    depends_on:
+      minio:
+        condition: service_started
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >
+        until mc alias set local http://minio:9000 "$${MINIO_ACCESS_KEY}" "$${MINIO_SECRET_KEY}";
+        do sleep 2; done &&
+        mc mb --ignore-existing "local/$${MINIO_BUCKET}" &&
+        mc anonymous set download "local/$${MINIO_BUCKET}/course/"
+    environment:
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+
+  # ===== Flyway 数据库迁移（版本化 SQL 管理） =====
+  # 在 backend 启动前执行 deploy/sql/migration 下的 V*.sql，
+  # 执行记录写在 flyway_schema_history 表，后续加表/改表只需新增 V2、V3...
+  flyway:
+    image: flyway/flyway:10.20.0-alpine
+    container_name: learningplatform-flyway
+    restart: "no"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    command:
+      - -url=jdbc:mysql://mysql:3306/${DB_NAME}?sslMode=DISABLED&allowPublicKeyRetrieval=true
+      - -user=root
+      - -password=${MYSQL_ROOT_PASSWORD}
+      - -connectRetries=30
+      # 现有库是旧 initdb 建的、非空但没有 flyway_schema_history，
+      # 让 flyway 先把现有状态 baseline 成基线版本，再继续执行 V1
+      - -baselineOnMigrate=true
+      - migrate
+    volumes:
+      - ./backend/deploy/sql/migration:/flyway/sql:ro
+
+  # ===== 后端 API（go-zero） =====
+  backend:
+    build:
+      context: ./backend
+    container_name: learningplatform-backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      flyway:
+        condition: service_completed_successfully
+    environment:
+      # 容器内通过 docker 网络访问 mysql / redis 服务名
+      MYSQL_DSN: "${DB_USERNAME}:${DB_PASSWORD}@tcp(mysql:3306)/${DB_NAME}?charset=utf8mb4&parseTime=true&loc=Local"
+      REDIS_HOST: redis:6379
+      REDIS_PASS: ${REDIS_PASSWORD}
+      # 容器内连 MinIO 用服务名；返回给前端的 URL 用宿主机可访问的 127.0.0.1:9020
+      MINIO_ENDPOINT: minio:9000
+      MINIO_PUBLIC_ENDPOINT: 127.0.0.1:${MINIO_API_PORT:-9020}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+    ports:
+      - "127.0.0.1:${BACKEND_PORT}:8888"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8888/api/from/you || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  # ===== 前端（Vue3 + nginx） =====
+  frontend:
+    build:
+      context: ./frontend
+    container_name: learningplatform-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${HTTP_PORT}:80"
+
+volumes:
+  mysql_data:
+  redis_data:
+  minio_data:

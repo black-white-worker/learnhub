@@ -1,0 +1,9 @@
+-- 说明：本文件已废弃。
+--
+-- 数据库表结构与预置账号现由 Flyway 版本化管理，脚本放在本目录下的 migration/ 子目录：
+--   migration/V1__create_users.sql   用户表 + 预置 admin/123456 账号
+--
+-- 新增表 / 改表结构时，按命名规则新增 V2__xxx.sql、V3__xxx.sql，
+-- 由 docker-compose 里的 flyway 服务在 backend 启动前自动执行。
+--
+-- 不再把本目录挂载到 MySQL 的 /docker-entrypoint-initdb.d，避免和 Flyway 重复建表。

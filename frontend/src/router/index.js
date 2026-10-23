@@ -27,6 +27,36 @@ const router = createRouter({
       name: 'register',
       component: () => import('../views/RegisterView.vue'),
     },
+    {
+      path: '/course/create',
+      name: 'course-create',
+      // 课程创建页（来自「课程创建」分支）
+      component: () => import('../views/CourseCreateView.vue'),
+    },
+    {
+      path: '/courses',
+      name: 'courses',
+      // 课程列表页（来自「课程列表」分支）：展示 GET /api/course/list 返回的课程
+      component: () => import('../views/CourseListView.vue'),
+    },
+    {
+      path: '/course/:id/watch/:videoId',
+      name: 'course-watch',
+      // 课程视频观看页（来自「课程观看」分支）：播放器 + 进度条 + 进度记忆
+      component: () => import('../views/CourseWatchView.vue'),
+    },
+    {
+      path: '/course/:id/resources',
+      name: 'course-resources',
+      // 课程资源页（来自「课程资源」分支）：PPT / Word / PDF 讲义的上传与查看
+      component: () => import('../views/CourseResourcesView.vue'),
+    },
+    {
+      path: '/course/:id',
+      name: 'course-detail',
+      // 课程详情页（来自「课程编辑」分支）：卡片点击进入，展示封面 / 基本信息 / 视频 / 资源
+      component: () => import('../views/CourseDetailView.vue'),
+    },
   ],
 })
 

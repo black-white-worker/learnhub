@@ -1,8 +1,8 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useRouter, useRoute, RouterView } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Reading, Notebook, EditPen, Collection } from '@element-plus/icons-vue'
+import { Reading, Notebook, EditPen, Collection, ArrowDown } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -19,14 +19,27 @@ watch(
   }
 )
 
-// 顶部导航菜单
+// 顶部导航菜单：
+// path 为空的是"建设中"占位；带 children 的是下拉菜单（课程中心）
 const menus = [
   { label: '首页', icon: Reading, path: '/' },
-  { label: '课程中心', icon: Notebook, path: '' },
+  {
+    label: '课程中心',
+    icon: Notebook,
+    children: [
+      { label: '创建课程', path: '/course/create' },
+      { label: '课程列表', path: '/courses' },
+    ],
+  },
   { label: '考试中心', icon: EditPen, path: '' },
   { label: '资料库', icon: Collection, path: '' },
 ]
 const activeMenu = ref('/')
+
+// 课程中心下拉菜单是否高亮：路由命中创建课程/课程列表任一个就高亮
+const isCourseMenuActive = computed(() =>
+  ['/course/create', '/courses'].includes(route.path)
+)
 
 function onMenuClick(menu) {
   if (menu.path) {
@@ -35,6 +48,12 @@ function onMenuClick(menu) {
   } else {
     ElMessage.info('「' + menu.label + '」建设中，敬请期待')
   }
+}
+
+// 课程中心下拉菜单选中：跳转到对应路由并高亮
+function onMenuCommand(path) {
+  activeMenu.value = path
+  router.push(path)
 }
 
 function goLogin() {
@@ -60,16 +79,37 @@ function logout() {
           <span class="logo-text">学习平台</span>
         </div>
         <nav class="menu">
-          <div
-            v-for="m in menus"
-            :key="m.label"
-            class="menu-item"
-            :class="{ active: m.path === activeMenu }"
-            @click="onMenuClick(m)"
-          >
-            <el-icon><component :is="m.icon" /></el-icon>
-            <span>{{ m.label }}</span>
-          </div>
+          <template v-for="m in menus" :key="m.label">
+            <!-- 带 children 的菜单渲染为下拉（课程中心） -->
+            <el-dropdown v-if="m.children" trigger="click" @command="onMenuCommand">
+              <div class="menu-item" :class="{ active: isCourseMenuActive }">
+                <el-icon><component :is="m.icon" /></el-icon>
+                <span>{{ m.label }}</span>
+                <el-icon class="menu-arrow"><ArrowDown /></el-icon>
+              </div>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item
+                    v-for="c in m.children"
+                    :key="c.path"
+                    :command="c.path"
+                  >
+                    {{ c.label }}
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+            <!-- 普通菜单项 -->
+            <div
+              v-else
+              class="menu-item"
+              :class="{ active: m.path === activeMenu }"
+              @click="onMenuClick(m)"
+            >
+              <el-icon><component :is="m.icon" /></el-icon>
+              <span>{{ m.label }}</span>
+            </div>
+          </template>
         </nav>
         <div class="user-area">
           <template v-if="username">
@@ -159,6 +199,11 @@ function logout() {
 
 .menu-item:hover {
   background: #f3f4f6;
+}
+
+.menu-arrow {
+  font-size: 12px;
+  margin-left: 2px;
 }
 
 .menu-item.active {
