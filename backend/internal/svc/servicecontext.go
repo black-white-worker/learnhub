@@ -23,19 +23,19 @@ type ServiceContext struct {
 	ClassStore *model.ClassModel
 	// Redis 缓存客户端，登录成功后把 token 写入 Redis
 	Redis *redis.Redis
-	// DB 暴露底层 sqlx 连接，供轻量表（视频笔记、操作日志等）直接读写
+	// DB 暴露底层 sqlx 连接，供轻量表（操作日志等）直接读写
 	DB sqlx.SqlConn
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
 	conn := sqlx.NewMysql(c.Mysql.DataSource)
 	sc := &ServiceContext{
-		Config:    c,
-		UserStore: model.NewUserModel(conn),
+		Config:      c,
+		UserStore:   model.NewUserModel(conn),
 		CourseStore: model.NewCourseModel(conn),
 		ClassStore:  model.NewClassModel(conn),
-		Redis:     redis.MustNewRedis(c.Redis),
-		DB:        conn,
+		Redis:       redis.MustNewRedis(c.Redis),
+		DB:          conn,
 	}
 
 	// MinIO 配置了 Endpoint 才初始化对象存储。
