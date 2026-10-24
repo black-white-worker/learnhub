@@ -183,6 +183,7 @@ func createClass(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		code := fmt.Sprintf("%06d", time.Now().UnixNano()%1000000)
 		_ = svcCtx.ClassStore.CreateInvitation(id, code)
 		httpx.WriteJson(w, 200, map[string]interface{}{"id": id, "inviteCode": code})
+		logOperation(svcCtx, r, cu.id, cu.username, "create_class", fmt.Sprintf("class:%d", id), req.Name)
 	}
 }
 
@@ -425,6 +426,7 @@ func createAnnouncement(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 		httpx.WriteJson(w, 200, map[string]interface{}{"id": id})
+		logOperation(svcCtx, r, cu.id, cu.username, "publish_notice", fmt.Sprintf("class:%d", classId), req.Title)
 	}
 }
 
