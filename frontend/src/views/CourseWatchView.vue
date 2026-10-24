@@ -2,6 +2,7 @@
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import axios from 'axios'
 import {
   getVideoPlay,
   saveVideoProgress,
@@ -18,6 +19,48 @@ const videoRef = ref(null)
 const video = ref(null)
 const loading = ref(true)
 const saveTimer = ref(null)
+
+// 笔记
+const notes = ref([])
+const noteText = ref('')
+const auth = { headers: { Authorization: 'Bearer ' + (localStorage.getItem('token') || '') } }
+
+async function loadNotes() {
+  try {
+    const r = await axios.get(`/api/course/note/${courseId}/${videoId}`, auth)
+    notes.value = r.data || []
+  } catch (e) {
+    notes.value = []
+  }
+}
+
+async function addNote() {
+  if (!noteText.value.trim()) return
+  const v = videoRef.value
+  const ts = v ? Math.floor(v.currentTime) : 0
+  try {
+    await axios.post('/api/course/note', {
+      courseId, videoId, timestampSeconds: ts, content: noteText.value.trim(),
+    }, auth)
+    ElMessage.success('笔记已保存')
+    noteText.value = ''
+    loadNotes()
+  } catch (e) {
+    ElMessage.error('保存失败')
+  }
+}
+
+function seekTo(ts) {
+  const v = videoRef.value
+  if (!v) return
+  v.currentTime = ts
+  v.play()
+}
+
+function fmtTs(s) {
+  const m = Math.floor(s / 60), sec = s % 60
+  return `${m}:${sec.toString().padStart(2, '0')}`
+}
 
 async function load() {
   loading.value = true
@@ -74,7 +117,7 @@ async function flushProgress() {
   }
 }
 
-onMounted(load)
+onMounted(() => { load(); loadNotes() })
 onBeforeUnmount(flushProgress)
 </script>
 
@@ -86,16 +129,32 @@ onBeforeUnmount(flushProgress)
       <el-tag v-if="video && video.faststarted" type="success" size="small">可拖动播放</el-tag>
     </div>
 
-    <video
-      v-if="video"
-      ref="videoRef"
-      :src="video.url"
-      controls
-      preload="metadata"
-      class="player"
-      @loadedmetadata="onLoadedMetadata"
-      @timeupdate="onTimeUpdate"
-    ></video>
+    <div class="watch-layout">
+      <div>
+        <video
+          v-if="video"
+          ref="videoRef"
+          :src="video.url"
+          controls
+          preload="metadata"
+          class="player"
+          @loadedmetadata="onLoadedMetadata"
+          @timeupdate="onTimeUpdate"
+        ></video>
+      </div>
+      <aside class="notes-panel">
+        <h3>我的笔记</h3>
+        <div class="note-input">
+          <el-input v-model="noteText" type="textarea" :rows="3" placeholder="在当前时间点记笔记" />
+          <el-button type="primary" size="small" style="margin-top:6px" @click="addNote">保存笔记</el-button>
+        </div>
+        <div v-for="n in notes" :key="n.id" class="note-item" @click="seekTo(n.timestampSeconds)">
+          <span class="note-ts">{{ fmtTs(n.timestampSeconds) }}</span>
+          <span class="note-content">{{ n.content }}</span>
+        </div>
+        <el-empty v-if="!notes.length" description="暂无笔记" :image-size="60" />
+      </aside>
+    </div>
   </div>
 </template>
 
@@ -131,4 +190,20 @@ onBeforeUnmount(flushProgress)
   border-radius: 12px;
   display: block;
 }
+
+.watch-layout {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: 16px;
+}
+
+.notes-panel {
+  border-left: 1px solid #eee;
+  padding-left: 16px;
+}
+
+.notes-panel h3 { margin: 0 0 10px; font-size: 14px; }
+.note-item { padding: 6px 4px; border-bottom: 1px dashed #eee; cursor: pointer; font-size: 13px; }
+.note-ts { color: #e6a23c; font-weight: 600; margin-right: 6px; }
+.note-content { color: #333; }
 </style>

@@ -110,6 +110,17 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/api/course/resource/preview/:courseId/:resourceId",
 				Handler: ResourcePreviewHandler(serverCtx),
 			},
+			// 视频笔记
+			{
+				Method:  http.MethodPost,
+				Path:    "/api/course/note",
+				Handler: addNoteHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/api/course/note/:courseId/:videoId",
+				Handler: listNotesHandler(serverCtx),
+			},
 		},
 	)
 }
