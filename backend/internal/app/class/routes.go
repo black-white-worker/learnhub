@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 
 	"github.com/zeromicro/go-zero/rest"
 	"github.com/zeromicro/go-zero/rest/httpx"
+	"github.com/zeromicro/go-zero/rest/pathvar"
 )
 
 // RegisterRoutes 注册班级模块所有路由（全部需要登录）
@@ -54,6 +56,8 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 
 		// 管理员：用户管理
 		{Method: http.MethodGet, Path: "/api/admin/users", Handler: listAllUsers(serverCtx)},
+		{Method: http.MethodPost, Path: "/api/user/apply-teacher", Handler: applyTeacher(serverCtx)},
+		{Method: http.MethodPost, Path: "/api/admin/users/role", Handler: updateUserRole(serverCtx)},
 	}
 
 	server.AddRoutes(
@@ -81,7 +85,14 @@ func currentUser(w http.ResponseWriter, r *http.Request, svcCtx *svc.ServiceCont
 		httpx.WriteJson(w, http.StatusInternalServerError, map[string]string{"message": "用户不存在"})
 		return nil, false
 	}
-	return &ctxUser{username: u.Username, role: u.Role, id: uid}, true
+	// 旧 session 可能没有 role 字段（V6 之前登录的），从数据库补查
+	role := u.Role
+	if role == "" {
+		if dbUser := svcCtx.UserStore.GetUser(u.Username); dbUser != nil {
+			role = dbUser.Role
+		}
+	}
+	return &ctxUser{username: u.Username, role: role, id: uid}, true
 }
 
 // requireClassMember 校验当前用户是该班成员，返回角色
@@ -110,10 +121,28 @@ func requireTeacher(w http.ResponseWriter, r *http.Request, svcCtx *svc.ServiceC
 	return role == "teacher" || role == "admin"
 }
 
-func parseInt(s string) int64 {
-	var n int64
-	fmt.Sscanf(s, "%d", &n)
-	return n
+// parseIntPath 从 go-zero 路径参数取 int。
+// go-zero v1.10+ 把 :xxx 路径参数存在 context 的 pathvar 里，不是标准库 r.PathValue，
+// 所以必须用 pathvar.Vars(r)；旧代码用 r.PathValue 永远取到空，只能 fallback 取 URL 末段，
+// 对 /api/class/2/announcements 这种带子路径的路由会把 "announcements" 当 id 解析成 0，
+// 进而 requireClassMember(0, uid) 误判"你不在这个班级"。
+func parseIntPath(r *http.Request, key string) int64 {
+	// 1. 优先走 go-zero 官方 pathvar（:id / :userId / :aid 等）
+	if vars := pathvar.Vars(r); vars != nil {
+		if s := vars[key]; s != "" {
+			if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+				return n
+			}
+		}
+	}
+	// 2. 兜底：从 URL 里找第一个纯数字段（防御性，正常不会走到这）
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	for _, p := range parts {
+		if n, err := strconv.ParseInt(p, 10, 64); err == nil {
+			return n
+		}
+	}
+	return 0
 }
 
 func body(r *http.Request, v interface{}) {
@@ -126,6 +155,11 @@ func createClass(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cu, ok := currentUser(w, r, svcCtx)
 		if !ok {
+			return
+		}
+		// 只有老师和管理员能创建班级
+		if cu.role != "teacher" && cu.role != "admin" {
+			httpx.WriteJson(w, 403, map[string]string{"message": "只有老师或管理员才能创建班级"})
 			return
 		}
 		var req struct {
@@ -145,7 +179,10 @@ func createClass(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		}
 		// 创建者自动加入班级当班主任
 		_ = svcCtx.ClassStore.AddMember(id, cu.id, "teacher")
-		httpx.WriteJson(w, 200, map[string]interface{}{"id": id})
+		// 创建时自动生成一个邀请码
+		code := fmt.Sprintf("%06d", time.Now().UnixNano()%1000000)
+		_ = svcCtx.ClassStore.CreateInvitation(id, code)
+		httpx.WriteJson(w, 200, map[string]interface{}{"id": id, "inviteCode": code})
 	}
 }
 
@@ -189,7 +226,7 @@ func classDetail(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		classId := parseInt(r.PathValue("id"))
+		classId := parseIntPath(r, "id")
 		if _, ok := requireClassMember(w, r, svcCtx, classId, cu); !ok {
 			return
 		}
@@ -200,10 +237,16 @@ func classDetail(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		}
 		members, _ := svcCtx.ClassStore.ListMembers(classId)
 		courseIds, _ := svcCtx.ClassStore.ListClassCourseIds(classId)
+		// 取该班最新一条邀请码返回给前端展示（可能为空）
+		inviteCode := ""
+		if invs, _ := svcCtx.ClassStore.ListInvitations(classId); len(invs) > 0 {
+			inviteCode = invs[len(invs)-1].Code
+		}
 		httpx.WriteJson(w, 200, map[string]interface{}{
-			"class":    c,
-			"members":  members,
-			"courseIds": courseIds,
+			"class":     c,
+			"members":   members,
+			"courseIds":  courseIds,
+			"inviteCode": inviteCode,
 		})
 	}
 }
@@ -214,7 +257,7 @@ func deleteClass(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		classId := parseInt(r.PathValue("id"))
+		classId := parseIntPath(r, "id")
 		if cu.role != "admin" {
 			httpx.WriteJson(w, 403, map[string]string{"message": "仅管理员可删除班级"})
 			return
@@ -265,7 +308,7 @@ func listMembers(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		classId := parseInt(r.PathValue("id"))
+		classId := parseIntPath(r, "id")
 		if _, ok := requireClassMember(w, r, svcCtx, classId, cu); !ok {
 			return
 		}
@@ -284,8 +327,8 @@ func removeMember(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		classId := parseInt(r.PathValue("id"))
-		userId := parseInt(r.PathValue("userId"))
+		classId := parseIntPath(r, "id")
+		userId := parseIntPath(r, "userId")
 		if !requireTeacher(w, r, svcCtx, classId, cu) {
 			return
 		}
@@ -303,7 +346,7 @@ func bindCourse(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		classId := parseInt(r.PathValue("id"))
+		classId := parseIntPath(r, "id")
 		if !requireTeacher(w, r, svcCtx, classId, cu) {
 			return
 		}
@@ -325,8 +368,8 @@ func unbindCourse(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		classId := parseInt(r.PathValue("id"))
-		courseId := parseInt(r.PathValue("courseId"))
+		classId := parseIntPath(r, "id")
+		courseId := parseIntPath(r, "courseId")
 		if !requireTeacher(w, r, svcCtx, classId, cu) {
 			return
 		}
@@ -341,7 +384,7 @@ func createInvite(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		classId := parseInt(r.PathValue("id"))
+		classId := parseIntPath(r, "id")
 		if !requireTeacher(w, r, svcCtx, classId, cu) {
 			return
 		}
@@ -363,7 +406,7 @@ func createAnnouncement(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		classId := parseInt(r.PathValue("id"))
+		classId := parseIntPath(r, "id")
 		if !requireTeacher(w, r, svcCtx, classId, cu) {
 			return
 		}
@@ -391,7 +434,7 @@ func listAnnouncements(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		classId := parseInt(r.PathValue("id"))
+		classId := parseIntPath(r, "id")
 		if _, ok := requireClassMember(w, r, svcCtx, classId, cu); !ok {
 			return
 		}
@@ -409,7 +452,7 @@ func deleteAnnouncement(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		if _, ok := currentUser(w, r, svcCtx); !ok {
 			return
 		}
-		aid := parseInt(r.PathValue("aid"))
+		aid := parseIntPath(r, "aid")
 		_ = svcCtx.ClassStore.DeleteAnnouncement(aid)
 		httpx.WriteJson(w, 200, map[string]string{"message": "ok"})
 	}
@@ -423,7 +466,7 @@ func createAssignment(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		classId := parseInt(r.PathValue("id"))
+		classId := parseIntPath(r, "id")
 		if !requireTeacher(w, r, svcCtx, classId, cu) {
 			return
 		}
@@ -463,7 +506,7 @@ func listAssignments(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		classId := parseInt(r.PathValue("id"))
+		classId := parseIntPath(r, "id")
 		if _, ok := requireClassMember(w, r, svcCtx, classId, cu); !ok {
 			return
 		}
@@ -482,7 +525,7 @@ func assignmentDetail(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		aid := parseInt(r.PathValue("aid"))
+		aid := parseIntPath(r, "aid")
 		a, err := svcCtx.ClassStore.GetAssignment(aid)
 		if err != nil {
 			httpx.WriteJson(w, 404, map[string]string{"message": "作业不存在"})
@@ -503,7 +546,7 @@ func submitAssignment(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		aid := parseInt(r.PathValue("aid"))
+		aid := parseIntPath(r, "aid")
 		a, err := svcCtx.ClassStore.GetAssignment(aid)
 		if err != nil {
 			httpx.WriteJson(w, 404, map[string]string{"message": "作业不存在"})
@@ -536,7 +579,7 @@ func listSubmissions(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		aid := parseInt(r.PathValue("aid"))
+		aid := parseIntPath(r, "aid")
 		a, err := svcCtx.ClassStore.GetAssignment(aid)
 		if err != nil {
 			httpx.WriteJson(w, 404, map[string]string{"message": "作业不存在"})
@@ -555,7 +598,7 @@ func gradeSubmission(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		if _, ok := currentUser(w, r, svcCtx); !ok {
 			return
 		}
-		sid := parseInt(r.PathValue("sid"))
+		sid := parseIntPath(r, "sid")
 		var req struct {
 			Score   int    `json:"score"`
 			Comment string `json:"comment"`
@@ -577,7 +620,7 @@ func createDiscussion(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		classId := parseInt(r.PathValue("id"))
+		classId := parseIntPath(r, "id")
 		if _, ok := requireClassMember(w, r, svcCtx, classId, cu); !ok {
 			return
 		}
@@ -603,7 +646,7 @@ func listDiscussions(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		classId := parseInt(r.PathValue("id"))
+		classId := parseIntPath(r, "id")
 		if _, ok := requireClassMember(w, r, svcCtx, classId, cu); !ok {
 			return
 		}
@@ -618,7 +661,7 @@ func discussionDetail(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		did := parseInt(r.PathValue("did"))
+		did := parseIntPath(r, "did")
 		d, err := svcCtx.ClassStore.GetDiscussion(did)
 		if err != nil {
 			httpx.WriteJson(w, 404, map[string]string{"message": "帖子不存在"})
@@ -638,7 +681,7 @@ func deleteDiscussion(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		did := parseInt(r.PathValue("did"))
+		did := parseIntPath(r, "did")
 		d, err := svcCtx.ClassStore.GetDiscussion(did)
 		if err == nil {
 			if !requireTeacher(w, r, svcCtx, d.ClassId, cu) {
@@ -656,7 +699,7 @@ func replyDiscussion(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		did := parseInt(r.PathValue("did"))
+		did := parseIntPath(r, "did")
 		d, err := svcCtx.ClassStore.GetDiscussion(did)
 		if err != nil {
 			httpx.WriteJson(w, 404, map[string]string{"message": "帖子不存在"})
@@ -698,5 +741,48 @@ func listAllUsers(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 		httpx.WriteJson(w, 200, users)
+	}
+}
+
+// applyTeacher 学生申请成为老师
+func applyTeacher(svcCtx *svc.ServiceContext) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cu, ok := currentUser(w, r, svcCtx)
+		if !ok {
+			return
+		}
+		if err := svcCtx.UserStore.ApplyTeacher(cu.username); err != nil {
+			httpx.WriteJson(w, 500, map[string]string{"message": err.Error()})
+			return
+		}
+		httpx.WriteJson(w, 200, map[string]string{"message": "申请已提交，等待管理员审批"})
+	}
+}
+
+// updateUserRole 管理员修改用户角色（审批老师申请用）
+func updateUserRole(svcCtx *svc.ServiceContext) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cu, ok := currentUser(w, r, svcCtx)
+		if !ok {
+			return
+		}
+		if cu.role != "admin" {
+			httpx.WriteJson(w, 403, map[string]string{"message": "仅管理员可修改用户角色"})
+			return
+		}
+		var req struct {
+			Username string `json:"username"`
+			Role     string `json:"role"`
+		}
+		body(r, &req)
+		if req.Role != "admin" && req.Role != "teacher" && req.Role != "student" {
+			httpx.WriteJson(w, 400, map[string]string{"message": "角色不合法"})
+			return
+		}
+		if err := svcCtx.UserStore.UpdateRole(req.Username, req.Role); err != nil {
+			httpx.WriteJson(w, 500, map[string]string{"message": err.Error()})
+			return
+		}
+		httpx.WriteJson(w, 200, map[string]string{"message": "ok"})
 	}
 }

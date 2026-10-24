@@ -10,10 +10,11 @@ import (
 
 // User 表示一个用户（对应数据库 users 表）。
 type User struct {
-	Username string `db:"username"`
-	Password string `db:"password"`
-	Nickname string `db:"nickname"`
-	Role     string `db:"role"`
+	Username     string `db:"username"`
+	Password     string `db:"password"`
+	Nickname     string `db:"nickname"`
+	Role         string `db:"role"`
+	ApplyTeacher bool   `db:"apply_teacher"`
 }
 
 // SessionUser 登录会话信息（登录成功后以 JSON 形式写入 Redis）。
@@ -41,7 +42,7 @@ func NewUserModel(conn sqlx.SqlConn) *UserModel {
 func (m *UserModel) Verify(username, password string) bool {
 	var u User
 	err := m.conn.QueryRowCtx(context.Background(), &u,
-		"SELECT username, password, nickname, role FROM users WHERE username = ? LIMIT 1", username)
+		"SELECT username, password, nickname, role, apply_teacher FROM users WHERE username = ? LIMIT 1", username)
 	if err != nil {
 		return false
 	}
@@ -53,7 +54,7 @@ func (m *UserModel) Verify(username, password string) bool {
 func (m *UserModel) GetUser(username string) *User {
 	var u User
 	err := m.conn.QueryRowCtx(context.Background(), &u,
-		"SELECT username, password, nickname, role FROM users WHERE username = ? LIMIT 1", username)
+		"SELECT username, password, nickname, role, apply_teacher FROM users WHERE username = ? LIMIT 1", username)
 	if err != nil {
 		return nil
 	}
@@ -96,8 +97,15 @@ func (m *UserModel) GetIdByUsername(username string) (int64, error) {
 func (m *UserModel) ListAll() ([]*User, error) {
 	var users []*User
 	err := m.conn.QueryRowsCtx(context.Background(), &users,
-		"SELECT username, password, nickname, role FROM users ORDER BY id")
+		"SELECT username, password, nickname, role, apply_teacher FROM users ORDER BY id")
 	return users, err
+}
+
+// ApplyTeacher 学生申请成为老师
+func (m *UserModel) ApplyTeacher(username string) error {
+	_, err := m.conn.ExecCtx(context.Background(),
+		"UPDATE users SET apply_teacher = 1 WHERE username = ?", username)
+	return err
 }
 
 // UpdateRole 修改用户角色（管理员用）

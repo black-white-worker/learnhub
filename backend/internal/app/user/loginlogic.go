@@ -64,10 +64,11 @@ func (l *LoginLogic) Login(req *LoginRequest) (resp *LoginResponse, err error) {
 		return nil, errors.New("登录状态写入失败")
 	}
 
-	// 5. 返回登录结果
+	// 5. 返回登录结果（带上角色，前端据此控制"创建班级"等入口）
 	return &LoginResponse{
 		Token:    token,
 		Username: req.Username,
+		Role:     u.Role,
 	}, nil
 }
 

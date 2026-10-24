@@ -20,6 +20,7 @@ type LoginRequest struct {
 type LoginResponse struct {
 	Token    string `json:"token"`
 	Username string `json:"username"`
+	Role     string `json:"role"` // admin/teacher/student，前端据此控制创建班级等入口
 }
 
 // ===== 注册接口 POST /api/user/register =====
@@ -44,4 +45,5 @@ type LogoutResponse struct {
 type InfoResponse struct {
 	Username string `json:"username"`
 	Nickname string `json:"nickname"`
+	Role     string `json:"role"` // admin/teacher/student
 }

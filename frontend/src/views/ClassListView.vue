@@ -5,7 +5,8 @@
       <div class="actions">
         <el-input v-model="joinCode" placeholder="输入邀请码加入" style="width:200px" @keyup.enter="doJoin" />
         <el-button type="success" @click="doJoin">加入班级</el-button>
-        <el-button type="primary" @click="showCreate = true">创建班级</el-button>
+        <!-- 只有老师/管理员能创建班级，学生账号不显示入口（后端 /api/class/create 也会拦截） -->
+        <el-button v-if="canCreateClass" type="primary" @click="showCreate = true">创建班级</el-button>
       </div>
     </div>
 
@@ -34,8 +35,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ref, computed, onMounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
 
 const classes = ref([])
@@ -43,6 +44,12 @@ const loading = ref(false)
 const joinCode = ref('')
 const showCreate = ref(false)
 const form = ref({ name: '', grade: '', major: '' })
+
+// 只有老师/管理员能创建班级（与后端 /api/class/create 的角色校验保持一致）
+const canCreateClass = computed(() => {
+  const role = localStorage.getItem('role')
+  return role === 'teacher' || role === 'admin'
+})
 
 async function load() {
   loading.value = true
@@ -60,9 +67,18 @@ async function load() {
 async function doCreate() {
   const token = localStorage.getItem('token')
   try {
-    await axios.post('/api/class/create', form.value, { headers: { Authorization: 'Bearer ' + token } })
-    ElMessage.success('创建成功')
+    const r = await axios.post('/api/class/create', form.value, { headers: { Authorization: 'Bearer ' + token } })
     showCreate.value = false
+    // 创建成功后把邀请码弹窗展示给老师，方便发给学生加入
+    if (r.data?.inviteCode) {
+      ElMessageBox.alert(
+        `班级创建成功，邀请码：${r.data.inviteCode}（发给学生用于加入班级）`,
+        '创建成功',
+        { confirmButtonText: '知道了' }
+      )
+    } else {
+      ElMessage.success('创建成功')
+    }
     load()
   } catch (e) {
     ElMessage.error(e.response?.data?.message || '创建失败')

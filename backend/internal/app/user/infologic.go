@@ -33,9 +33,10 @@ func (l *InfoLogic) Info() (resp *InfoResponse, err error) {
 		return nil, errors.New("未登录或登录已过期")
 	}
 
-	// 2. 返回当前登录用户
+	// 2. 返回当前登录用户（角色从会话里取，前端据此控制入口）
 	return &InfoResponse{
 		Username: session.Username,
 		Nickname: session.Nickname,
+		Role:     session.Role,
 	}, nil
 }

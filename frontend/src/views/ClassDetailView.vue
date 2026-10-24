@@ -1,6 +1,7 @@
 <template>
   <div class="class-detail" v-loading="loading">
     <template v-if="detail">
+      <el-button @click="$router.push('/classes')" size="small">← 返回班级列表</el-button>
       <h1>{{ detail.class.name }}</h1>
       <p class="sub">{{ detail.class.grade }} · {{ detail.class.major }}
         <el-button v-if="isTeacher" size="small" @click="genInvite">生成邀请码</el-button>
@@ -110,6 +111,8 @@ async function load() {
   try {
     const r = await axios.get(`/api/class/${classId}`, auth)
     detail.value = r.data
+    // 邀请码由后端随详情一并返回，进页面即展示
+    inviteCode.value = r.data.inviteCode || ''
     // 查当前用户在班角色
     const me = localStorage.getItem('username')
     const myMember = r.data.members.find(m => m.username === me)

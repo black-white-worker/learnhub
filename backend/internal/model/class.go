@@ -20,13 +20,13 @@ func NewClassModel(conn sqlx.SqlConn) *ClassModel {
 // ---- classes 表 ----
 
 type ClassRow struct {
-	Id            int64          `db:"id"`
-	Name          string         `db:"name"`
-	Grade         string         `db:"grade"`
-	Major         string         `db:"major"`
-	HeadTeacherId int64          `db:"head_teacher_id"`
-	CreatedBy     string         `db:"created_by"`
-	CreatedAt     time.Time      `db:"created_at"`
+	Id            int64          `db:"id" json:"id"`
+	Name          string         `db:"name" json:"name"`
+	Grade         string         `db:"grade" json:"grade"`
+	Major         string         `db:"major" json:"major"`
+	HeadTeacherId int64          `db:"head_teacher_id" json:"headTeacherId"`
+	CreatedBy     string         `db:"created_by" json:"createdBy"`
+	CreatedAt     time.Time      `db:"created_at" json:"createdAt"`
 }
 
 func (m *ClassModel) InsertClass(name, grade, major, createdBy string, headTeacherId int64) (int64, error) {
@@ -89,12 +89,12 @@ func (m *ClassModel) DeleteClass(id int64) error {
 // ---- class_members 表 ----
 
 type ClassMemberRow struct {
-	Id       int64  `db:"id"`
-	ClassId  int64  `db:"class_id"`
-	UserId   int64  `db:"user_id"`
-	Role     string `db:"role"`
-	Username string `db:"username"`
-	Nickname string `db:"nickname"`
+	Id       int64  `db:"id" json:"id"`
+	ClassId  int64  `db:"class_id" json:"classId"`
+	UserId   int64  `db:"user_id" json:"userId"`
+	Role     string `db:"role" json:"role"`
+	Username string `db:"username" json:"username"`
+	Nickname string `db:"nickname" json:"nickname"`
 }
 
 func (m *ClassModel) AddMember(classId, userId int64, role string) error {
@@ -154,8 +154,8 @@ func (m *ClassModel) ListClassCourseIds(classId int64) ([]int64, error) {
 // ---- class_invitations 表 ----
 
 type InvitationRow struct {
-	Id        int64        `db:"id"`
-	ClassId   int64        `db:"class_id"`
+	Id        int64        `db:"id" json:"id"`
+	ClassId   int64        `db:"class_id" json:"classId"`
 	Code      string       `db:"code"`
 	ExpiresAt sql.NullTime `db:"expires_at"`
 	MaxUses   int          `db:"max_uses"`
@@ -194,13 +194,13 @@ func (m *ClassModel) ListInvitations(classId int64) ([]*InvitationRow, error) {
 // ---- announcements 公告 ----
 
 type AnnouncementRow struct {
-	Id         int64     `db:"id"`
-	ClassId    int64     `db:"class_id"`
-	Title      string    `db:"title"`
-	Content    string    `db:"content"`
-	PublisherId int64    `db:"publisher_id"`
-	IsTop      bool      `db:"is_top"`
-	CreatedAt  time.Time `db:"created_at"`
+	Id         int64     `db:"id" json:"id"`
+	ClassId    int64     `db:"class_id" json:"classId"`
+	Title      string    `db:"title" json:"title"`
+	Content    string    `db:"content" json:"content"`
+	PublisherId int64    `db:"publisher_id" json:"publisherId"`
+	IsTop      bool      `db:"is_top" json:"isTop"`
+	CreatedAt  time.Time `db:"created_at" json:"createdAt"`
 }
 
 func (m *ClassModel) InsertAnnouncement(a *AnnouncementRow) (int64, error) {
@@ -228,15 +228,15 @@ func (m *ClassModel) DeleteAnnouncement(id int64) error {
 // ---- assignments 作业 ----
 
 type AssignmentRow struct {
-	Id         int64      `db:"id"`
-	ClassId    int64      `db:"class_id"`
-	CourseId   int64      `db:"course_id"`
-	Title      string     `db:"title"`
-	Description string    `db:"description"`
-	Deadline   sql.NullTime `db:"deadline"`
-	TotalScore int        `db:"total_score"`
-	PublisherId int64     `db:"publisher_id"`
-	CreatedAt  time.Time  `db:"created_at"`
+	Id         int64      `db:"id" json:"id"`
+	ClassId    int64      `db:"class_id" json:"classId"`
+	CourseId   int64      `db:"course_id" json:"courseId"`
+	Title      string     `db:"title" json:"title"`
+	Description string    `db:"description" json:"description"`
+	Deadline   sql.NullTime `db:"deadline" json:"deadline"`
+	TotalScore int        `db:"total_score" json:"totalScore"`
+	PublisherId int64     `db:"publisher_id" json:"publisherId"`
+	CreatedAt  time.Time  `db:"created_at" json:"createdAt"`
 }
 
 func (m *ClassModel) InsertAssignment(a *AssignmentRow) (int64, error) {
@@ -269,14 +269,14 @@ func (m *ClassModel) GetAssignment(id int64) (*AssignmentRow, error) {
 // ---- assignment_submissions 作业提交 ----
 
 type SubmissionRow struct {
-	Id          int64          `db:"id"`
+	Id          int64          `db:"id" json:"id"`
 	AssignmentId int64         `db:"assignment_id"`
-	UserId      int64          `db:"user_id"`
-	Content     string         `db:"content"`
-	FileUrl     string         `db:"file_url"`
-	Score       sql.NullInt64  `db:"score"`
-	Comment     string         `db:"comment"`
-	SubmittedAt time.Time      `db:"submitted_at"`
+	UserId      int64          `db:"user_id" json:"userId"`
+	Content     string         `db:"content" json:"content"`
+	FileUrl     string         `db:"file_url" json:"fileUrl"`
+	Score       sql.NullInt64  `db:"score" json:"score"`
+	Comment     string         `db:"comment" json:"comment"`
+	SubmittedAt time.Time      `db:"submitted_at" json:"submittedAt"`
 }
 
 func (m *ClassModel) UpsertSubmission(s *SubmissionRow) error {
@@ -315,13 +315,13 @@ func (m *ClassModel) GetMySubmission(assignmentId, userId int64) (*SubmissionRow
 // ---- discussions 讨论 ----
 
 type DiscussionRow struct {
-	Id           int64     `db:"id"`
-	ClassId      int64     `db:"class_id"`
-	UserId       int64     `db:"user_id"`
-	Title        string    `db:"title"`
-	Content      string    `db:"content"`
-	LastReplyAt  time.Time `db:"last_reply_at"`
-	CreatedAt    time.Time `db:"created_at"`
+	Id           int64     `db:"id" json:"id"`
+	ClassId      int64     `db:"class_id" json:"classId"`
+	UserId       int64     `db:"user_id" json:"userId"`
+	Title        string    `db:"title" json:"title"`
+	Content      string    `db:"content" json:"content"`
+	LastReplyAt  time.Time `db:"last_reply_at" json:"lastReplyAt"`
+	CreatedAt    time.Time `db:"created_at" json:"createdAt"`
 }
 
 func (m *ClassModel) InsertDiscussion(d *DiscussionRow) (int64, error) {
@@ -368,11 +368,11 @@ func (m *ClassModel) DeleteDiscussion(id int64) error {
 // ---- discussion_replies 回复 ----
 
 type ReplyRow struct {
-	Id           int64     `db:"id"`
+	Id           int64     `db:"id" json:"id"`
 	DiscussionId int64     `db:"discussion_id"`
-	UserId       int64     `db:"user_id"`
-	Content      string    `db:"content"`
-	CreatedAt    time.Time `db:"created_at"`
+	UserId       int64     `db:"user_id" json:"userId"`
+	Content      string    `db:"content" json:"content"`
+	CreatedAt    time.Time `db:"created_at" json:"createdAt"`
 }
 
 func (m *ClassModel) InsertReply(r *ReplyRow) (int64, error) {

@@ -64,6 +64,7 @@ function goLogin() {
 function logout() {
   localStorage.removeItem('token')
   localStorage.removeItem('username')
+  localStorage.removeItem('role')
   username.value = ''
   ElMessage.success('已退出登录')
   router.push('/')

@@ -32,14 +32,15 @@ async function handleLogin() {
   try {
     // 调用后端登录接口
     const res = await login({ username: form.username, password: form.password })
-    // 登录成功：token 存进浏览器 localStorage，跳回首页
+    // 登录成功：token / username / role 存进浏览器 localStorage，跳回首页
     localStorage.setItem('token', res.data.token)
     localStorage.setItem('username', res.data.username)
+    localStorage.setItem('role', res.data.role || 'student')
     ElMessage.success('登录成功')
     router.push('/')
   } catch (e) {
-    // 后端返回错误时，msg 字段是错误信息
-    ElMessage.error(e.response?.data?.msg || '登录失败，请重试')
+    // 后端 go-zero 默认返回 {"message":"..."}
+    ElMessage.error(e.response?.data?.message || e.response?.data?.msg || '账号或密码错误')
   } finally {
     loading.value = false
   }
