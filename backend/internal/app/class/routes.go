@@ -38,6 +38,7 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 		{Method: http.MethodPost, Path: "/api/class/:id/announcement", Handler: createAnnouncement(serverCtx)},
 		{Method: http.MethodGet, Path: "/api/class/:id/announcements", Handler: listAnnouncements(serverCtx)},
 		{Method: http.MethodDelete, Path: "/api/class/announcement/:aid", Handler: deleteAnnouncement(serverCtx)},
+		{Method: http.MethodPost, Path: "/api/class/announcement/:aid/read", Handler: markAnnouncementRead(serverCtx)},
 
 		// 作业
 		{Method: http.MethodPost, Path: "/api/class/:id/assignment", Handler: createAssignment(serverCtx)},
@@ -443,7 +444,41 @@ func listAnnouncements(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			httpx.WriteJson(w, 500, map[string]string{"message": err.Error()})
 			return
 		}
-		httpx.WriteJson(w, 200, list)
+		// 给每条公告附加：当前用户是否已读 + 已读人数，前端据此渲染红点和老师端统计
+		type annWithRead struct {
+			*model.AnnouncementRow
+			ReadByMe  bool `json:"readByMe"`
+			ReadCount int  `json:"readCount"`
+		}
+		out := make([]annWithRead, 0, len(list))
+		for _, a := range list {
+			readIds, _ := svcCtx.ClassStore.ListReadUserIds(a.Id)
+			readByMe := false
+			for _, uid := range readIds {
+				if uid == cu.id {
+					readByMe = true
+					break
+				}
+			}
+			out = append(out, annWithRead{AnnouncementRow: a, ReadByMe: readByMe, ReadCount: len(readIds)})
+		}
+		httpx.WriteJson(w, 200, out)
+	}
+}
+
+// markAnnouncementRead 学生/成员打开公告后调用，标记已读（幂等）
+func markAnnouncementRead(svcCtx *svc.ServiceContext) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cu, ok := currentUser(w, r, svcCtx)
+		if !ok {
+			return
+		}
+		aid := parseIntPath(r, "aid")
+		if err := svcCtx.ClassStore.MarkAnnouncementRead(aid, cu.id); err != nil {
+			httpx.WriteJson(w, 500, map[string]string{"message": err.Error()})
+			return
+		}
+		httpx.WriteJson(w, 200, map[string]string{"message": "ok"})
 	}
 }
 
