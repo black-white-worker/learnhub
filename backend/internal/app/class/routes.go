@@ -1,9 +1,11 @@
 package class
 
 import (
+	"crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
@@ -17,6 +19,16 @@ import (
 	"github.com/zeromicro/go-zero/rest/httpx"
 	"github.com/zeromicro/go-zero/rest/pathvar"
 )
+
+// generateInviteCode 用 crypto/rand 生成 6 位数字邀请码，避免 time.Now() 可预测或撞码
+func generateInviteCode() string {
+	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
+	if err != nil {
+		// 极端情况下回退时间戳，保证不阻塞业务
+		return fmt.Sprintf("%06d", time.Now().UnixNano()%1000000)
+	}
+	return fmt.Sprintf("%06d", n.Int64())
+}
 
 // RegisterRoutes 注册班级模块所有路由（全部需要登录）
 func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
@@ -177,11 +189,18 @@ func createClass(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			httpx.WriteJson(w, 500, map[string]string{"message": err.Error()})
 			return
 		}
-		// 创建者自动加入班级当班主任
-		_ = svcCtx.ClassStore.AddMember(id, cu.id, "teacher")
+		// 创建者自动加入班级当班主任：加成员失败必须回滚并报错，否则创建者会成"隐形人"
+		if err := svcCtx.ClassStore.AddMember(id, cu.id, "teacher"); err != nil {
+			_ = svcCtx.ClassStore.DeleteClass(id)
+			httpx.WriteJson(w, 500, map[string]string{"message": "加入班级失败：" + err.Error()})
+			return
+		}
 		// 创建时自动生成一个邀请码
-		code := fmt.Sprintf("%06d", time.Now().UnixNano()%1000000)
-		_ = svcCtx.ClassStore.CreateInvitation(id, code)
+		code := generateInviteCode()
+		if err := svcCtx.ClassStore.CreateInvitation(id, code); err != nil {
+			httpx.WriteJson(w, 500, map[string]string{"message": "邀请码生成失败：" + err.Error()})
+			return
+		}
 		httpx.WriteJson(w, 200, map[string]interface{}{"id": id, "inviteCode": code})
 	}
 }
@@ -388,8 +407,8 @@ func createInvite(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		if !requireTeacher(w, r, svcCtx, classId, cu) {
 			return
 		}
-		// 生成6位随机邀请码
-		code := fmt.Sprintf("%06d", time.Now().UnixNano()%1000000)
+		// 生成6位随机邀请码（crypto/rand，不可预测）
+		code := generateInviteCode()
 		if err := svcCtx.ClassStore.CreateInvitation(classId, code); err != nil {
 			httpx.WriteJson(w, 500, map[string]string{"message": err.Error()})
 			return
@@ -449,11 +468,24 @@ func listAnnouncements(svcCtx *svc.ServiceContext) http.HandlerFunc {
 
 func deleteAnnouncement(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := currentUser(w, r, svcCtx); !ok {
+		cu, ok := currentUser(w, r, svcCtx)
+		if !ok {
 			return
 		}
 		aid := parseIntPath(r, "aid")
-		_ = svcCtx.ClassStore.DeleteAnnouncement(aid)
+		a, err := svcCtx.ClassStore.GetAnnouncement(aid)
+		if err != nil {
+			httpx.WriteJson(w, 404, map[string]string{"message": "公告不存在"})
+			return
+		}
+		// 仅发布者本人、该班老师或管理员可删
+		if a.PublisherId != cu.id && !requireTeacher(w, r, svcCtx, a.ClassId, cu) {
+			return
+		}
+		if err := svcCtx.ClassStore.DeleteAnnouncement(aid); err != nil {
+			httpx.WriteJson(w, 500, map[string]string{"message": err.Error()})
+			return
+		}
 		httpx.WriteJson(w, 200, map[string]string{"message": "ok"})
 	}
 }
@@ -595,10 +627,25 @@ func listSubmissions(svcCtx *svc.ServiceContext) http.HandlerFunc {
 
 func gradeSubmission(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := currentUser(w, r, svcCtx); !ok {
+		cu, ok := currentUser(w, r, svcCtx)
+		if !ok {
 			return
 		}
 		sid := parseIntPath(r, "sid")
+		sub, err := svcCtx.ClassStore.GetSubmission(sid)
+		if err != nil {
+			httpx.WriteJson(w, 404, map[string]string{"message": "提交记录不存在"})
+			return
+		}
+		// 反查作业所在班级，仅该班老师/管理员可批改
+		a, err := svcCtx.ClassStore.GetAssignment(sub.AssignmentId)
+		if err != nil {
+			httpx.WriteJson(w, 404, map[string]string{"message": "作业不存在"})
+			return
+		}
+		if !requireTeacher(w, r, svcCtx, a.ClassId, cu) {
+			return
+		}
 		var req struct {
 			Score   int    `json:"score"`
 			Comment string `json:"comment"`
@@ -683,12 +730,19 @@ func deleteDiscussion(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		}
 		did := parseIntPath(r, "did")
 		d, err := svcCtx.ClassStore.GetDiscussion(did)
-		if err == nil {
-			if !requireTeacher(w, r, svcCtx, d.ClassId, cu) {
-				return
-			}
+		if err != nil {
+			httpx.WriteJson(w, 404, map[string]string{"message": "帖子不存在"})
+			return
 		}
-		_ = svcCtx.ClassStore.DeleteDiscussion(did)
+		// 作者本人可删自己的帖子；否则需该班老师/管理员
+		isOwner := d.UserId == cu.id
+		if !isOwner && !requireTeacher(w, r, svcCtx, d.ClassId, cu) {
+			return
+		}
+		if err := svcCtx.ClassStore.DeleteDiscussion(did); err != nil {
+			httpx.WriteJson(w, 500, map[string]string{"message": err.Error()})
+			return
+		}
 		httpx.WriteJson(w, 200, map[string]string{"message": "ok"})
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // User 表示一个用户（对应数据库 users 表）。
@@ -38,7 +39,8 @@ func NewUserModel(conn sqlx.SqlConn) *UserModel {
 }
 
 // Verify 校验用户名密码是否正确。
-// 用户名不存在、密码不匹配或数据库查询出错都返回 false。
+// 密码统一 bcrypt 哈希存储。为兼容历史明文数据（init.sql 里的 admin/123456），
+// 若库中密码不以 "$2" 开头则按明文比对；上层登录成功后会自动把明文升级为 bcrypt。
 func (m *UserModel) Verify(username, password string) bool {
 	var u User
 	err := m.conn.QueryRowCtx(context.Background(), &u,
@@ -46,7 +48,32 @@ func (m *UserModel) Verify(username, password string) bool {
 	if err != nil {
 		return false
 	}
+	if strings.HasPrefix(u.Password, "$2") {
+		return bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(password)) == nil
+	}
 	return u.Password == password
+}
+
+// IsBcrypted 判断库中该用户密码是否已经是 bcrypt 哈希（登录成功后自动升级用）
+func (m *UserModel) IsBcrypted(username string) bool {
+	var pwd string
+	err := m.conn.QueryRowCtx(context.Background(), &pwd,
+		"SELECT password FROM users WHERE username = ? LIMIT 1", username)
+	if err != nil {
+		return false
+	}
+	return strings.HasPrefix(pwd, "$2")
+}
+
+// UpgradePasswordHash 把明文密码用 bcrypt 哈希后写回（老用户首次登录自动调用）
+func (m *UserModel) UpgradePasswordHash(username, rawPassword string) error {
+	hash, err := bcrypt.GenerateFromPassword([]byte(rawPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	_, err = m.conn.ExecCtx(context.Background(),
+		"UPDATE users SET password = ? WHERE username = ?", string(hash), username)
+	return err
 }
 
 // GetUser 根据用户名返回用户对象（登录增强用，模拟张三开发的第二个功能）。
@@ -61,14 +88,17 @@ func (m *UserModel) GetUser(username string) *User {
 	return &u
 }
 
-// Add 新增一个用户（注册功能用，模拟"同事李四"开发的代码）。
-// 用户名已存在（唯一索引冲突）时返回"用户名已存在"，避免重复注册。
+// Add 新增一个用户（注册功能用）。密码在落库前用 bcrypt 哈希，不存明文。
+// 用户名已存在（唯一索引冲突）时返回"用户名已存在"。
 func (m *UserModel) Add(username, password string) error {
-	_, err := m.conn.ExecCtx(context.Background(),
-		"INSERT INTO users (username, password, nickname) VALUES (?, ?, ?)",
-		username, password, username)
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		// MySQL 唯一索引冲突的错误文本包含 Duplicate entry
+		return errors.New("密码加密失败")
+	}
+	_, err = m.conn.ExecCtx(context.Background(),
+		"INSERT INTO users (username, password, nickname) VALUES (?, ?, ?)",
+		username, string(hash), username)
+	if err != nil {
 		if strings.Contains(err.Error(), "Duplicate entry") {
 			return errors.New("用户名已存在")
 		}

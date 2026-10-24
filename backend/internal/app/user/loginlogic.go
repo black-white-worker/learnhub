@@ -53,6 +53,11 @@ func (l *LoginLogic) Login(req *LoginRequest) (resp *LoginResponse, err error) {
 		return nil, errors.New("用户信息读取失败")
 	}
 
+	// 3.1 兼容老数据：如果库中还是明文密码，登录成功后自动升级为 bcrypt 哈希
+	if !l.svcCtx.UserStore.IsBcrypted(req.Username) {
+		_ = l.svcCtx.UserStore.UpgradePasswordHash(req.Username, req.Password)
+	}
+
 	// 4. 会话信息序列化为 JSON 写入 Redis
 	// key = login:token:{token}，value = {"username":..., "nickname":...}
 	session := model.SessionUser{Username: u.Username, Nickname: u.Nickname, Role: u.Role}

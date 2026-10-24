@@ -225,6 +225,17 @@ func (m *ClassModel) DeleteAnnouncement(id int64) error {
 	return err
 }
 
+// GetAnnouncement 按 id 取单条公告（删除前鉴权用，不存在返回 sql.ErrNoRows）
+func (m *ClassModel) GetAnnouncement(id int64) (*AnnouncementRow, error) {
+	var a AnnouncementRow
+	err := m.conn.QueryRowCtx(context.Background(), &a,
+		"SELECT id, class_id, title, content, publisher_id, is_top, created_at FROM announcements WHERE id=?", id)
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
 // ---- assignments 作业 ----
 
 type AssignmentRow struct {
@@ -292,6 +303,18 @@ func (m *ClassModel) GradeSubmission(submissionId int64, score int, comment stri
 	_, err := m.conn.ExecCtx(context.Background(),
 		"UPDATE assignment_submissions SET score=?, comment=?, graded_at=NOW() WHERE id=?", score, comment, submissionId)
 	return err
+}
+
+// GetSubmission 按提交 id 取单条提交记录（批改前鉴权用）
+func (m *ClassModel) GetSubmission(submissionId int64) (*SubmissionRow, error) {
+	var s SubmissionRow
+	err := m.conn.QueryRowCtx(context.Background(), &s,
+		"SELECT id, assignment_id, user_id, content, file_url, score, comment, submitted_at FROM assignment_submissions WHERE id=?",
+		submissionId)
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
 }
 
 func (m *ClassModel) ListSubmissions(assignmentId int64) ([]*SubmissionRow, error) {
