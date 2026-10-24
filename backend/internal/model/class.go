@@ -446,3 +446,74 @@ func (m *ClassModel) CountUnreadByClass(classId, userId int64) (int64, error) {
 		 )`, classId, userId)
 	return n, err
 }
+
+// ---- 班级签到 ----
+
+type SigninRow struct {
+	Id        int64     `db:"id" json:"id"`
+	ClassId   int64     `db:"class_id" json:"classId"`
+	TeacherId int64     `db:"teacher_id" json:"teacherId"`
+	Code      string    `db:"code" json:"code"`
+	ExpiresAt time.Time `db:"expires_at" json:"expiresAt"`
+	CreatedAt time.Time `db:"created_at" json:"createdAt"`
+}
+
+type SigninRecordRow struct {
+	Id       int64     `db:"id" json:"id"`
+	SigninId int64     `db:"signin_id" json:"signinId"`
+	UserId   int64     `db:"user_id" json:"userId"`
+	Username string    `db:"username" json:"username"`
+	SignedAt time.Time `db:"signed_at" json:"signedAt"`
+}
+
+// CreateSignin 发起一次签到
+func (m *ClassModel) CreateSignin(s *SigninRow) (int64, error) {
+	res, err := m.conn.ExecCtx(context.Background(),
+		"INSERT INTO class_signin (class_id, teacher_id, code, expires_at) VALUES (?,?,?,?)",
+		s.ClassId, s.TeacherId, s.Code, s.ExpiresAt)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// GetActiveSignin 取某班当前未过期的签到（一个班同时只允许一个进行中的签到）
+func (m *ClassModel) GetActiveSignin(classId int64) (*SigninRow, error) {
+	var s SigninRow
+	err := m.conn.QueryRowCtx(context.Background(), &s,
+		"SELECT id, class_id, teacher_id, code, expires_at, created_at FROM class_signin WHERE class_id=? AND expires_at>NOW() ORDER BY id DESC LIMIT 1",
+		classId)
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+// GetSigninByCode 学生凭签到码查签到（同时校验班级归属）
+func (m *ClassModel) GetSigninByCode(code string) (*SigninRow, error) {
+	var s SigninRow
+	err := m.conn.QueryRowCtx(context.Background(), &s,
+		"SELECT id, class_id, teacher_id, code, expires_at, created_at FROM class_signin WHERE code=? ORDER BY id DESC LIMIT 1",
+		code)
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+// AddSigninRecord 学生签到（唯一键冲突=重复签到）
+func (m *ClassModel) AddSigninRecord(signinId, userId int64) error {
+	_, err := m.conn.ExecCtx(context.Background(),
+		"INSERT IGNORE INTO signin_records (signin_id, user_id) VALUES (?,?)", signinId, userId)
+	return err
+}
+
+// ListSigninRecords 老师查看签到名单（连表取用户名）
+func (m *ClassModel) ListSigninRecords(signinId int64) ([]*SigninRecordRow, error) {
+	var rows []*SigninRecordRow
+	err := m.conn.QueryRowsCtx(context.Background(), &rows,
+		`SELECT r.id, r.signin_id, r.user_id, u.username, r.signed_at
+		 FROM signin_records r JOIN users u ON r.user_id=u.id
+		 WHERE r.signin_id=? ORDER BY r.signed_at`, signinId)
+	return rows, err
+}

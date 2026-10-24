@@ -3,6 +3,7 @@ package class
 import (
 	"crypto/rand"
 	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -20,11 +21,11 @@ import (
 	"github.com/zeromicro/go-zero/rest/pathvar"
 )
 
-// generateInviteCode 用 crypto/rand 生成 6 位数字邀请码，避免 time.Now() 可预测或撞码
-func generateInviteCode() string {
+// rand6Code 生成6位数字随机码（邀请码/签到码通用）
+// 用 crypto/rand 保证不可预测，失败时回退时间戳，不阻塞业务
+func rand6Code() string {
 	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
 	if err != nil {
-		// 极端情况下回退时间戳，保证不阻塞业务
 		return fmt.Sprintf("%06d", time.Now().UnixNano()%1000000)
 	}
 	return fmt.Sprintf("%06d", n.Int64())
@@ -66,6 +67,12 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 		{Method: http.MethodGet, Path: "/api/discussion/:did", Handler: discussionDetail(serverCtx)},
 		{Method: http.MethodDelete, Path: "/api/discussion/:did", Handler: deleteDiscussion(serverCtx)},
 		{Method: http.MethodPost, Path: "/api/discussion/:did/reply", Handler: replyDiscussion(serverCtx)},
+
+		// 签到
+		{Method: http.MethodPost, Path: "/api/class/:id/signin/start", Handler: startSignin(serverCtx)},
+		{Method: http.MethodGet, Path: "/api/class/:id/signin", Handler: getActiveSignin(serverCtx)},
+		{Method: http.MethodPost, Path: "/api/class/:id/signin/do", Handler: doSignin(serverCtx)},
+		{Method: http.MethodGet, Path: "/api/class/:id/signin/records", Handler: listSigninRecords(serverCtx)},
 
 		// 管理员：用户管理
 		{Method: http.MethodGet, Path: "/api/admin/users", Handler: listAllUsers(serverCtx)},
@@ -139,6 +146,14 @@ func requireTeacher(w http.ResponseWriter, r *http.Request, svcCtx *svc.ServiceC
 // 所以必须用 pathvar.Vars(r)；旧代码用 r.PathValue 永远取到空，只能 fallback 取 URL 末段，
 // 对 /api/class/2/announcements 这种带子路径的路由会把 "announcements" 当 id 解析成 0，
 // 进而 requireClassMember(0, uid) 误判"你不在这个班级"。
+// generateInviteCode 生成6位数字邀请码（crypto/rand 不可预测）
+func generateInviteCode() string {
+	b := make([]byte, 4)
+	_, _ = rand.Read(b)
+	num := binary.BigEndian.Uint32(b) % 1000000
+	return fmt.Sprintf("%06d", num)
+}
+
 func parseIntPath(r *http.Request, key string) int64 {
 	// 1. 优先走 go-zero 官方 pathvar（:id / :userId / :aid 等）
 	if vars := pathvar.Vars(r); vars != nil {
@@ -197,7 +212,7 @@ func createClass(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 		// 创建时自动生成一个邀请码
-		code := generateInviteCode()
+		code := rand6Code()
 		if err := svcCtx.ClassStore.CreateInvitation(id, code); err != nil {
 			httpx.WriteJson(w, 500, map[string]string{"message": "邀请码生成失败：" + err.Error()})
 			return
@@ -409,7 +424,7 @@ func createInvite(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 		// 生成6位随机邀请码（crypto/rand，不可预测）
-		code := generateInviteCode()
+		code := rand6Code()
 		if err := svcCtx.ClassStore.CreateInvitation(classId, code); err != nil {
 			httpx.WriteJson(w, 500, map[string]string{"message": err.Error()})
 			return
@@ -873,5 +888,112 @@ func updateUserRole(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 		httpx.WriteJson(w, 200, map[string]string{"message": "ok"})
+	}
+}
+
+// ---- 签到 ----
+
+// startSignin 老师发起签到：生成6位码，5分钟有效
+func startSignin(svcCtx *svc.ServiceContext) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cu, ok := currentUser(w, r, svcCtx)
+		if !ok {
+			return
+		}
+		classId := parseIntPath(r, "id")
+		if !requireTeacher(w, r, svcCtx, classId, cu) {
+			return
+		}
+		code := rand6Code()
+		expires := time.Now().Add(5 * time.Minute)
+		id, err := svcCtx.ClassStore.CreateSignin(&model.SigninRow{
+			ClassId: classId, TeacherId: cu.id, Code: code, ExpiresAt: expires,
+		})
+		if err != nil {
+			httpx.WriteJson(w, 500, map[string]string{"message": err.Error()})
+			return
+		}
+		httpx.WriteJson(w, 200, map[string]interface{}{"id": id, "code": code, "expiresAt": expires})
+	}
+}
+
+// getActiveSignin 查当前进行中的签到（学生端显示签到码输入框；老师端显示当前码）
+func getActiveSignin(svcCtx *svc.ServiceContext) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cu, ok := currentUser(w, r, svcCtx)
+		if !ok {
+			return
+		}
+		classId := parseIntPath(r, "id")
+		if _, ok := requireClassMember(w, r, svcCtx, classId, cu); !ok {
+			return
+		}
+		s, err := svcCtx.ClassStore.GetActiveSignin(classId)
+		if err != nil {
+			httpx.WriteJson(w, 200, nil)
+			return
+		}
+		httpx.WriteJson(w, 200, s)
+	}
+}
+
+// doSignin 学生提交签到码
+func doSignin(svcCtx *svc.ServiceContext) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cu, ok := currentUser(w, r, svcCtx)
+		if !ok {
+			return
+		}
+		classId := parseIntPath(r, "id")
+		if _, ok := requireClassMember(w, r, svcCtx, classId, cu); !ok {
+			return
+		}
+		var req struct {
+			Code string `json:"code"`
+		}
+		body(r, &req)
+		s, err := svcCtx.ClassStore.GetSigninByCode(strings.TrimSpace(req.Code))
+		if err != nil {
+			httpx.WriteJson(w, 400, map[string]string{"message": "签到码无效"})
+			return
+		}
+		if s.ClassId != classId {
+			httpx.WriteJson(w, 400, map[string]string{"message": "签到码不属于本班级"})
+			return
+		}
+		if s.ExpiresAt.Before(time.Now()) {
+			httpx.WriteJson(w, 400, map[string]string{"message": "签到已结束"})
+			return
+		}
+		if err := svcCtx.ClassStore.AddSigninRecord(s.Id, cu.id); err != nil {
+			httpx.WriteJson(w, 500, map[string]string{"message": err.Error()})
+			return
+		}
+		httpx.WriteJson(w, 200, map[string]string{"message": "签到成功"})
+	}
+}
+
+// listSigninRecords 老师查看已签名单
+func listSigninRecords(svcCtx *svc.ServiceContext) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cu, ok := currentUser(w, r, svcCtx)
+		if !ok {
+			return
+		}
+		classId := parseIntPath(r, "id")
+		if !requireTeacher(w, r, svcCtx, classId, cu) {
+			return
+		}
+		s, err := svcCtx.ClassStore.GetActiveSignin(classId)
+		if err != nil {
+			httpx.WriteJson(w, 200, []interface{}{})
+			return
+		}
+		list, err := svcCtx.ClassStore.ListSigninRecords(s.Id)
+		if err != nil {
+			httpx.WriteJson(w, 500, map[string]string{"message": err.Error()})
+			return
+		}
+		httpx.WriteJson(w, 200, list)
 	}
 }

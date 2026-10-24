@@ -49,6 +49,26 @@
             <p>{{ d.content.substring(0, 60) }}</p>
           </div>
         </el-tab-pane>
+
+        <el-tab-pane label="签到" name="signin">
+          <div v-if="isTeacher" class="toolbar">
+            <el-button type="primary" @click="startSignin">发起签到（5分钟有效）</el-button>
+            <span v-if="activeSignin" style="margin-left:12px">当前签到码：<b style="color:#e6a23c">{{ activeSignin.code }}</b></span>
+          </div>
+          <div v-if="activeSignin">
+            <div v-if="!isTeacher" class="signin-student">
+              <el-input v-model="signinCode" placeholder="输入老师给的6位签到码" style="width:220px" maxlength="6" />
+              <el-button type="primary" style="margin-left:8px" @click="doSignin">签到</el-button>
+            </div>
+            <div v-if="isTeacher" style="margin-top:12px">
+              <b>已签名单（{{ signinRecords.length }}人）：</b>
+              <div v-for="r in signinRecords" :key="r.id" class="signin-row">
+                {{ r.username }} <small>{{ r.signedAt }}</small>
+              </div>
+            </div>
+          </div>
+          <el-empty v-else description="当前没有进行中的签到" />
+        </el-tab-pane>
       </el-tabs>
 
       <!-- 作业详情弹窗 -->
@@ -106,6 +126,11 @@ const currentDiscussion = ref(null)
 const replies = ref([])
 const replyText = ref('')
 
+// 签到
+const activeSignin = ref(null)
+const signinCode = ref('')
+const signinRecords = ref([])
+
 const isTeacher = computed(() => detail.value?.myRole === 'teacher' || detail.value?.myRole === 'admin')
 const isMember = computed(() => !!detail.value?.myRole)
 
@@ -123,6 +148,7 @@ async function load() {
     loadNotices()
     loadHw()
     loadDiscuss()
+    loadSignin()
   } catch (e) {
     ElMessage.error('加载失败')
   } finally {
@@ -141,6 +167,37 @@ async function loadHw() {
 async function loadDiscuss() {
   const r = await axios.get(`/api/class/${classId}/discussions`, auth)
   discussions.value = r.data || []
+}
+async function loadSignin() {
+  try {
+    const r = await axios.get(`/api/class/${classId}/signin`, auth)
+    activeSignin.value = r.data || null
+    if (activeSignin.value) {
+      const rec = await axios.get(`/api/class/${classId}/signin/records`, auth)
+      signinRecords.value = rec.data || []
+    } else {
+      signinRecords.value = []
+    }
+  } catch (e) {
+    activeSignin.value = null
+  }
+}
+
+async function startSignin() {
+  await axios.post(`/api/class/${classId}/signin/start`, {}, auth)
+  ElMessage.success('签到已发起')
+  loadSignin()
+}
+async function doSignin() {
+  if (!signinCode.value.trim()) return
+  try {
+    await axios.post(`/api/class/${classId}/signin/do`, { code: signinCode.value.trim() }, auth)
+    ElMessage.success('签到成功')
+    signinCode.value = ''
+    loadSignin()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.message || '签到失败')
+  }
 }
 
 async function postNotice() {
@@ -216,4 +273,6 @@ onMounted(load)
 .read-stat { margin-left: 8px; color: #909399; font-size: 12px; }
 .notice-dot { margin-right: 4px; }
 .reply { padding: 6px; background: #f5f5f5; margin: 4px 0; }
+.signin-student { margin: 12px 0; }
+.signin-row { padding: 4px 0; border-bottom: 1px dashed #eee; }
 </style>
