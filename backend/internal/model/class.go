@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"time"
 
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
@@ -244,10 +245,30 @@ type AssignmentRow struct {
 	CourseId    int64        `db:"course_id" json:"courseId"`
 	Title       string       `db:"title" json:"title"`
 	Description string       `db:"description" json:"description"`
-	Deadline    sql.NullTime `db:"deadline" json:"deadline"`
+	Deadline    sql.NullTime `db:"deadline" json:"-"` // 用 MarshalJSON 自定义输出，避免暴露 {Time,Valid} 内部结构
 	TotalScore  int          `db:"total_score" json:"totalScore"`
 	PublisherId int64        `db:"publisher_id" json:"publisherId"`
 	CreatedAt   time.Time    `db:"created_at" json:"createdAt"`
+}
+
+// MarshalJSON 自定义作业 JSON 输出：
+// Deadline 是 sql.NullTime，默认会序列化成 {"Time":"...","Valid":false} 这种内部结构，
+// 前端直接 {{ a.deadline }} 渲染就会出现截图里那串原始 JSON。
+// 这里统一输出成 "2006-01-02 15:04" 字符串，没设截止时间则输出 null，
+// 前端用 {{ a.deadline || '无截止时间' }} 即可正常显示。
+func (a *AssignmentRow) MarshalJSON() ([]byte, error) {
+	type Alias AssignmentRow // 别名避免递归调用本方法
+	dl := ""
+	if a.Deadline.Valid {
+		dl = a.Deadline.Time.Format("2006-01-02 15:04")
+	}
+	return json.Marshal(&struct {
+		Deadline string `json:"deadline"`
+		*Alias
+	}{
+		Deadline: dl,
+		Alias:    (*Alias)(a),
+	})
 }
 
 func (m *ClassModel) InsertAssignment(a *AssignmentRow) (int64, error) {
@@ -521,4 +542,111 @@ func (m *ClassModel) UpdateSubmissionAutoScore(submissionId int64, answers strin
 	_, err := m.conn.ExecCtx(context.Background(),
 		"UPDATE assignment_submissions SET answers=?, auto_score=? WHERE id=?", answers, autoScore, submissionId)
 	return err
+}
+
+// ---- 公告已读未读 ----
+
+// MarkAnnouncementRead 记录当前用户已读某公告（唯一键冲突忽略，幂等）
+func (m *ClassModel) MarkAnnouncementRead(announcementId, userId int64) error {
+	_, err := m.conn.ExecCtx(context.Background(),
+		"INSERT IGNORE INTO announcement_reads (announcement_id, user_id) VALUES (?,?)",
+		announcementId, userId)
+	return err
+}
+
+// ListReadUserIds 返回某公告所有已读用户 id（老师端统计已读名单）
+func (m *ClassModel) ListReadUserIds(announcementId int64) ([]int64, error) {
+	var ids []int64
+	err := m.conn.QueryRowsCtx(context.Background(), &ids,
+		"SELECT user_id FROM announcement_reads WHERE announcement_id=?", announcementId)
+	return ids, err
+}
+
+// CountUnreadByClass 返回当前用户在某班未读公告数
+func (m *ClassModel) CountUnreadByClass(classId, userId int64) (int64, error) {
+	var n int64
+	err := m.conn.QueryRowCtx(context.Background(), &n,
+		`SELECT COUNT(*) FROM announcements a
+		 WHERE a.class_id=? AND NOT EXISTS (
+		   SELECT 1 FROM announcement_reads r WHERE r.announcement_id=a.id AND r.user_id=?
+		 )`, classId, userId)
+	return n, err
+}
+
+// ---- 班级签到 ----
+
+type SigninRow struct {
+	Id        int64     `db:"id" json:"id"`
+	ClassId   int64     `db:"class_id" json:"classId"`
+	TeacherId int64     `db:"teacher_id" json:"teacherId"`
+	Code      string    `db:"code" json:"code"`
+	ExpiresAt time.Time `db:"expires_at" json:"expiresAt"`
+	CreatedAt time.Time `db:"created_at" json:"createdAt"`
+}
+
+type SigninRecordRow struct {
+	Id       int64     `db:"id" json:"id"`
+	SigninId int64     `db:"signin_id" json:"signinId"`
+	UserId   int64     `db:"user_id" json:"userId"`
+	Username string    `db:"username" json:"username"`
+	SignedAt time.Time `db:"signed_at" json:"signedAt"`
+}
+
+// CreateSignin 发起一次签到
+func (m *ClassModel) CreateSignin(s *SigninRow) (int64, error) {
+	res, err := m.conn.ExecCtx(context.Background(),
+		"INSERT INTO class_signin (class_id, teacher_id, code, expires_at) VALUES (?,?,?,?)",
+		s.ClassId, s.TeacherId, s.Code, s.ExpiresAt)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// GetActiveSignin 取某班当前未过期的签到
+func (m *ClassModel) GetActiveSignin(classId int64) (*SigninRow, error) {
+	var s SigninRow
+	err := m.conn.QueryRowCtx(context.Background(), &s,
+		"SELECT id, class_id, teacher_id, code, expires_at, created_at FROM class_signin WHERE class_id=? AND expires_at>NOW() ORDER BY id DESC LIMIT 1",
+		classId)
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+// GetSigninByCode 学生凭签到码查签到
+func (m *ClassModel) GetSigninByCode(code string) (*SigninRow, error) {
+	var s SigninRow
+	err := m.conn.QueryRowCtx(context.Background(), &s,
+		"SELECT id, class_id, teacher_id, code, expires_at, created_at FROM class_signin WHERE code=? ORDER BY id DESC LIMIT 1",
+		code)
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+// AddSigninRecord 学生签到。
+// 利用 (signin_id, user_id) 唯一键 + INSERT IGNORE：
+// 返回 inserted=true 表示本次是第一次签到；
+// 返回 inserted=false 表示该学生已签过到（重复签到），调用方应向前端报错而不是假装成功。
+func (m *ClassModel) AddSigninRecord(signinId, userId int64) (inserted bool, err error) {
+	res, err := m.conn.ExecCtx(context.Background(),
+		"INSERT IGNORE INTO signin_records (signin_id, user_id) VALUES (?,?)", signinId, userId)
+	if err != nil {
+		return false, err
+	}
+	affected, _ := res.RowsAffected()
+	return affected > 0, nil
+}
+
+// ListSigninRecords 老师查看签到名单
+func (m *ClassModel) ListSigninRecords(signinId int64) ([]*SigninRecordRow, error) {
+	var rows []*SigninRecordRow
+	err := m.conn.QueryRowsCtx(context.Background(), &rows,
+		`SELECT r.id, r.signin_id, r.user_id, u.username, r.signed_at
+		 FROM signin_records r JOIN users u ON r.user_id=u.id
+		 WHERE r.signin_id=? ORDER BY r.signed_at`, signinId)
+	return rows, err
 }
