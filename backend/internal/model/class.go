@@ -394,3 +394,48 @@ func (m *ClassModel) ListReplies(discussionId int64) ([]*ReplyRow, error) {
 		"SELECT id, discussion_id, user_id, content, created_at FROM discussion_replies WHERE discussion_id=? ORDER BY created_at", discussionId)
 	return rows, err
 }
+
+// ---- 作业客观题 ----
+
+type QuestionRow struct {
+	Id           int64  `db:"id" json:"id"`
+	AssignmentId int64  `db:"assignment_id" json:"assignmentId"`
+	Type         string `db:"type" json:"type"` // single / judge
+	Stem         string `db:"stem" json:"stem"`
+	Options      string `db:"options" json:"options"`
+	Answer       string `db:"answer" json:"-"` // 不返回给学生
+	Score        int    `db:"score" json:"score"`
+}
+
+func (m *ClassModel) InsertQuestion(q *QuestionRow) (int64, error) {
+	res, err := m.conn.ExecCtx(context.Background(),
+		"INSERT INTO assignment_questions (assignment_id, type, stem, options, answer, score) VALUES (?,?,?,?,?,?)",
+		q.AssignmentId, q.Type, q.Stem, q.Options, q.Answer, q.Score)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (m *ClassModel) ListQuestions(assignmentId int64) ([]*QuestionRow, error) {
+	var rows []*QuestionRow
+	err := m.conn.QueryRowsCtx(context.Background(), &rows,
+		"SELECT id, assignment_id, type, stem, options, answer, score FROM assignment_questions WHERE assignment_id=? ORDER BY id",
+		assignmentId)
+	return rows, err
+}
+
+// CountQuestions 统计某作业客观题总分（用于自动判分参考）
+func (m *ClassModel) SumQuestionScore(assignmentId int64) (int, error) {
+	var total int
+	err := m.conn.QueryRowCtx(context.Background(), &total,
+		"SELECT COALESCE(SUM(score),0) FROM assignment_questions WHERE assignment_id=?", assignmentId)
+	return total, err
+}
+
+// UpdateSubmissionAutoScore 写回客观题自动得分
+func (m *ClassModel) UpdateSubmissionAutoScore(submissionId int64, answers string, autoScore int) error {
+	_, err := m.conn.ExecCtx(context.Background(),
+		"UPDATE assignment_submissions SET answers=?, auto_score=? WHERE id=?", answers, autoScore, submissionId)
+	return err
+}
