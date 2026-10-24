@@ -74,6 +74,18 @@
       <!-- 作业详情弹窗 -->
       <el-dialog v-model="hwDialog" :title="currentHw?.title" width="600px">
         <p>{{ currentHw?.description }}</p>
+        <div v-if="hwQuestions.length" class="hw-questions">
+          <div v-for="(q, i) in hwQuestions" :key="q.id" class="hw-q">
+            <b>{{ i + 1 }}. {{ q.stem }}（{{ q.score }}分）</b>
+            <el-radio-group v-model="myAnswers[q.id]" style="margin-top:6px">
+              <el-radio v-for="(opt, oi) in (q.options ? JSON.parse(q.options) : [])" :key="oi" :value="'ABCD'[oi]">
+                {{ 'ABCD'[oi] }}. {{ opt }}
+              </el-radio>
+              <el-radio v-if="!q.options" value="true">正确</el-radio>
+              <el-radio v-if="!q.options" value="false">错误</el-radio>
+            </el-radio-group>
+          </div>
+        </div>
         <el-divider />
         <el-input v-model="mySubmission" type="textarea" placeholder="提交作业内容" />
         <el-button type="primary" style="margin-top:10px" @click="submitHw">提交</el-button>
@@ -120,6 +132,8 @@ const currentHw = ref(null)
 const mySubmission = ref('')
 const myScore = ref(null)
 const myComment = ref('')
+const hwQuestions = ref([])
+const myAnswers = ref({})
 
 const discussDialog = ref(false)
 const currentDiscussion = ref(null)
@@ -238,13 +252,26 @@ async function openHw(a) {
   currentHw.value = a
   const r = await axios.get(`/api/assignment/${a.id}`, auth)
   mySubmission.value = r.data.mySubmission?.content || ''
-  myScore.value = r.data.mySubmission?.score ?? null
+  myScore.value = r.data.mySubmission?.score ?? r.data.mySubmission?.autoScore ?? null
   myComment.value = r.data.mySubmission?.comment || ''
+  hwQuestions.value = r.data.questions || []
+  // 解析已作答的客观题
+  myAnswers.value = {}
+  if (r.data.mySubmission?.answers) {
+    try { myAnswers.value = JSON.parse(r.data.mySubmission.answers) } catch (e) { myAnswers.value = {} }
+  }
   hwDialog.value = true
 }
 async function submitHw() {
-  await axios.post(`/api/assignment/${currentHw.value.id}/submit`, { content: mySubmission.value }, auth)
-  ElMessage.success('提交成功')
+  const r = await axios.post(`/api/assignment/${currentHw.value.id}/submit`, {
+    content: mySubmission.value,
+    answers: myAnswers.value,
+  }, auth)
+  if (r.data?.autoScore !== undefined) {
+    ElMessage.success(`提交成功，客观题自动得分：${r.data.autoScore}`)
+  } else {
+    ElMessage.success('提交成功')
+  }
   hwDialog.value = false
 }
 
@@ -273,6 +300,6 @@ onMounted(load)
 .read-stat { margin-left: 8px; color: #909399; font-size: 12px; }
 .notice-dot { margin-right: 4px; }
 .reply { padding: 6px; background: #f5f5f5; margin: 4px 0; }
-.signin-student { margin: 12px 0; }
-.signin-row { padding: 4px 0; border-bottom: 1px dashed #eee; }
+.hw-q { padding: 10px 0; border-bottom: 1px dashed #eee; }
+.hw-questions { margin: 10px 0; }
 </style>

@@ -20,13 +20,13 @@ func NewClassModel(conn sqlx.SqlConn) *ClassModel {
 // ---- classes 表 ----
 
 type ClassRow struct {
-	Id            int64          `db:"id" json:"id"`
-	Name          string         `db:"name" json:"name"`
-	Grade         string         `db:"grade" json:"grade"`
-	Major         string         `db:"major" json:"major"`
-	HeadTeacherId int64          `db:"head_teacher_id" json:"headTeacherId"`
-	CreatedBy     string         `db:"created_by" json:"createdBy"`
-	CreatedAt     time.Time      `db:"created_at" json:"createdAt"`
+	Id            int64     `db:"id" json:"id"`
+	Name          string    `db:"name" json:"name"`
+	Grade         string    `db:"grade" json:"grade"`
+	Major         string    `db:"major" json:"major"`
+	HeadTeacherId int64     `db:"head_teacher_id" json:"headTeacherId"`
+	CreatedBy     string    `db:"created_by" json:"createdBy"`
+	CreatedAt     time.Time `db:"created_at" json:"createdAt"`
 }
 
 func (m *ClassModel) InsertClass(name, grade, major, createdBy string, headTeacherId int64) (int64, error) {
@@ -194,13 +194,13 @@ func (m *ClassModel) ListInvitations(classId int64) ([]*InvitationRow, error) {
 // ---- announcements 公告 ----
 
 type AnnouncementRow struct {
-	Id         int64     `db:"id" json:"id"`
-	ClassId    int64     `db:"class_id" json:"classId"`
-	Title      string    `db:"title" json:"title"`
-	Content    string    `db:"content" json:"content"`
-	PublisherId int64    `db:"publisher_id" json:"publisherId"`
-	IsTop      bool      `db:"is_top" json:"isTop"`
-	CreatedAt  time.Time `db:"created_at" json:"createdAt"`
+	Id          int64     `db:"id" json:"id"`
+	ClassId     int64     `db:"class_id" json:"classId"`
+	Title       string    `db:"title" json:"title"`
+	Content     string    `db:"content" json:"content"`
+	PublisherId int64     `db:"publisher_id" json:"publisherId"`
+	IsTop       bool      `db:"is_top" json:"isTop"`
+	CreatedAt   time.Time `db:"created_at" json:"createdAt"`
 }
 
 func (m *ClassModel) InsertAnnouncement(a *AnnouncementRow) (int64, error) {
@@ -239,15 +239,15 @@ func (m *ClassModel) GetAnnouncement(id int64) (*AnnouncementRow, error) {
 // ---- assignments 作业 ----
 
 type AssignmentRow struct {
-	Id         int64      `db:"id" json:"id"`
-	ClassId    int64      `db:"class_id" json:"classId"`
-	CourseId   int64      `db:"course_id" json:"courseId"`
-	Title      string     `db:"title" json:"title"`
-	Description string    `db:"description" json:"description"`
-	Deadline   sql.NullTime `db:"deadline" json:"deadline"`
-	TotalScore int        `db:"total_score" json:"totalScore"`
-	PublisherId int64     `db:"publisher_id" json:"publisherId"`
-	CreatedAt  time.Time  `db:"created_at" json:"createdAt"`
+	Id          int64        `db:"id" json:"id"`
+	ClassId     int64        `db:"class_id" json:"classId"`
+	CourseId    int64        `db:"course_id" json:"courseId"`
+	Title       string       `db:"title" json:"title"`
+	Description string       `db:"description" json:"description"`
+	Deadline    sql.NullTime `db:"deadline" json:"deadline"`
+	TotalScore  int          `db:"total_score" json:"totalScore"`
+	PublisherId int64        `db:"publisher_id" json:"publisherId"`
+	CreatedAt   time.Time    `db:"created_at" json:"createdAt"`
 }
 
 func (m *ClassModel) InsertAssignment(a *AssignmentRow) (int64, error) {
@@ -280,14 +280,14 @@ func (m *ClassModel) GetAssignment(id int64) (*AssignmentRow, error) {
 // ---- assignment_submissions 作业提交 ----
 
 type SubmissionRow struct {
-	Id          int64          `db:"id" json:"id"`
+	Id           int64         `db:"id" json:"id"`
 	AssignmentId int64         `db:"assignment_id"`
-	UserId      int64          `db:"user_id" json:"userId"`
-	Content     string         `db:"content" json:"content"`
-	FileUrl     string         `db:"file_url" json:"fileUrl"`
-	Score       sql.NullInt64  `db:"score" json:"score"`
-	Comment     string         `db:"comment" json:"comment"`
-	SubmittedAt time.Time      `db:"submitted_at" json:"submittedAt"`
+	UserId       int64         `db:"user_id" json:"userId"`
+	Content      string        `db:"content" json:"content"`
+	FileUrl      string        `db:"file_url" json:"fileUrl"`
+	Score        sql.NullInt64 `db:"score" json:"score"`
+	Comment      string        `db:"comment" json:"comment"`
+	SubmittedAt  time.Time     `db:"submitted_at" json:"submittedAt"`
 }
 
 func (m *ClassModel) UpsertSubmission(s *SubmissionRow) error {
@@ -338,13 +338,13 @@ func (m *ClassModel) GetMySubmission(assignmentId, userId int64) (*SubmissionRow
 // ---- discussions 讨论 ----
 
 type DiscussionRow struct {
-	Id           int64     `db:"id" json:"id"`
-	ClassId      int64     `db:"class_id" json:"classId"`
-	UserId       int64     `db:"user_id" json:"userId"`
-	Title        string    `db:"title" json:"title"`
-	Content      string    `db:"content" json:"content"`
-	LastReplyAt  time.Time `db:"last_reply_at" json:"lastReplyAt"`
-	CreatedAt    time.Time `db:"created_at" json:"createdAt"`
+	Id          int64     `db:"id" json:"id"`
+	ClassId     int64     `db:"class_id" json:"classId"`
+	UserId      int64     `db:"user_id" json:"userId"`
+	Title       string    `db:"title" json:"title"`
+	Content     string    `db:"content" json:"content"`
+	LastReplyAt time.Time `db:"last_reply_at" json:"lastReplyAt"`
+	CreatedAt   time.Time `db:"created_at" json:"createdAt"`
 }
 
 func (m *ClassModel) InsertDiscussion(d *DiscussionRow) (int64, error) {
@@ -418,102 +418,47 @@ func (m *ClassModel) ListReplies(discussionId int64) ([]*ReplyRow, error) {
 	return rows, err
 }
 
-// ---- 公告已读未读 ----
+// ---- 作业客观题 ----
 
-// MarkAnnouncementRead 记录当前用户已读某公告（唯一键冲突忽略，幂等）
-func (m *ClassModel) MarkAnnouncementRead(announcementId, userId int64) error {
-	_, err := m.conn.ExecCtx(context.Background(),
-		"INSERT IGNORE INTO announcement_reads (announcement_id, user_id) VALUES (?,?)",
-		announcementId, userId)
-	return err
+type QuestionRow struct {
+	Id           int64  `db:"id" json:"id"`
+	AssignmentId int64  `db:"assignment_id" json:"assignmentId"`
+	Type         string `db:"type" json:"type"` // single / judge
+	Stem         string `db:"stem" json:"stem"`
+	Options      string `db:"options" json:"options"`
+	Answer       string `db:"answer" json:"-"` // 不返回给学生
+	Score        int    `db:"score" json:"score"`
 }
 
-// ListReadUserIds 返回某公告所有已读用户 id（老师端统计已读名单）
-func (m *ClassModel) ListReadUserIds(announcementId int64) ([]int64, error) {
-	var ids []int64
-	err := m.conn.QueryRowsCtx(context.Background(), &ids,
-		"SELECT user_id FROM announcement_reads WHERE announcement_id=?", announcementId)
-	return ids, err
-}
-
-// CountUnreadByClass 返回当前用户在某班未读公告数（首页/铃铛红点用）
-func (m *ClassModel) CountUnreadByClass(classId, userId int64) (int64, error) {
-	var n int64
-	err := m.conn.QueryRowCtx(context.Background(), &n,
-		`SELECT COUNT(*) FROM announcements a
-		 WHERE a.class_id=? AND NOT EXISTS (
-		   SELECT 1 FROM announcement_reads r WHERE r.announcement_id=a.id AND r.user_id=?
-		 )`, classId, userId)
-	return n, err
-}
-
-// ---- 班级签到 ----
-
-type SigninRow struct {
-	Id        int64     `db:"id" json:"id"`
-	ClassId   int64     `db:"class_id" json:"classId"`
-	TeacherId int64     `db:"teacher_id" json:"teacherId"`
-	Code      string    `db:"code" json:"code"`
-	ExpiresAt time.Time `db:"expires_at" json:"expiresAt"`
-	CreatedAt time.Time `db:"created_at" json:"createdAt"`
-}
-
-type SigninRecordRow struct {
-	Id       int64     `db:"id" json:"id"`
-	SigninId int64     `db:"signin_id" json:"signinId"`
-	UserId   int64     `db:"user_id" json:"userId"`
-	Username string    `db:"username" json:"username"`
-	SignedAt time.Time `db:"signed_at" json:"signedAt"`
-}
-
-// CreateSignin 发起一次签到
-func (m *ClassModel) CreateSignin(s *SigninRow) (int64, error) {
+func (m *ClassModel) InsertQuestion(q *QuestionRow) (int64, error) {
 	res, err := m.conn.ExecCtx(context.Background(),
-		"INSERT INTO class_signin (class_id, teacher_id, code, expires_at) VALUES (?,?,?,?)",
-		s.ClassId, s.TeacherId, s.Code, s.ExpiresAt)
+		"INSERT INTO assignment_questions (assignment_id, type, stem, options, answer, score) VALUES (?,?,?,?,?,?)",
+		q.AssignmentId, q.Type, q.Stem, q.Options, q.Answer, q.Score)
 	if err != nil {
 		return 0, err
 	}
 	return res.LastInsertId()
 }
 
-// GetActiveSignin 取某班当前未过期的签到（一个班同时只允许一个进行中的签到）
-func (m *ClassModel) GetActiveSignin(classId int64) (*SigninRow, error) {
-	var s SigninRow
-	err := m.conn.QueryRowCtx(context.Background(), &s,
-		"SELECT id, class_id, teacher_id, code, expires_at, created_at FROM class_signin WHERE class_id=? AND expires_at>NOW() ORDER BY id DESC LIMIT 1",
-		classId)
-	if err != nil {
-		return nil, err
-	}
-	return &s, nil
-}
-
-// GetSigninByCode 学生凭签到码查签到（同时校验班级归属）
-func (m *ClassModel) GetSigninByCode(code string) (*SigninRow, error) {
-	var s SigninRow
-	err := m.conn.QueryRowCtx(context.Background(), &s,
-		"SELECT id, class_id, teacher_id, code, expires_at, created_at FROM class_signin WHERE code=? ORDER BY id DESC LIMIT 1",
-		code)
-	if err != nil {
-		return nil, err
-	}
-	return &s, nil
-}
-
-// AddSigninRecord 学生签到（唯一键冲突=重复签到）
-func (m *ClassModel) AddSigninRecord(signinId, userId int64) error {
-	_, err := m.conn.ExecCtx(context.Background(),
-		"INSERT IGNORE INTO signin_records (signin_id, user_id) VALUES (?,?)", signinId, userId)
-	return err
-}
-
-// ListSigninRecords 老师查看签到名单（连表取用户名）
-func (m *ClassModel) ListSigninRecords(signinId int64) ([]*SigninRecordRow, error) {
-	var rows []*SigninRecordRow
+func (m *ClassModel) ListQuestions(assignmentId int64) ([]*QuestionRow, error) {
+	var rows []*QuestionRow
 	err := m.conn.QueryRowsCtx(context.Background(), &rows,
-		`SELECT r.id, r.signin_id, r.user_id, u.username, r.signed_at
-		 FROM signin_records r JOIN users u ON r.user_id=u.id
-		 WHERE r.signin_id=? ORDER BY r.signed_at`, signinId)
+		"SELECT id, assignment_id, type, stem, options, answer, score FROM assignment_questions WHERE assignment_id=? ORDER BY id",
+		assignmentId)
 	return rows, err
+}
+
+// CountQuestions 统计某作业客观题总分（用于自动判分参考）
+func (m *ClassModel) SumQuestionScore(assignmentId int64) (int, error) {
+	var total int
+	err := m.conn.QueryRowCtx(context.Background(), &total,
+		"SELECT COALESCE(SUM(score),0) FROM assignment_questions WHERE assignment_id=?", assignmentId)
+	return total, err
+}
+
+// UpdateSubmissionAutoScore 写回客观题自动得分
+func (m *ClassModel) UpdateSubmissionAutoScore(submissionId int64, answers string, autoScore int) error {
+	_, err := m.conn.ExecCtx(context.Background(),
+		"UPDATE assignment_submissions SET answers=?, auto_score=? WHERE id=?", answers, autoScore, submissionId)
+	return err
 }

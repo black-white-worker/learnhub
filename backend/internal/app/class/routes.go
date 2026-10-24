@@ -57,6 +57,7 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 		{Method: http.MethodPost, Path: "/api/class/:id/assignment", Handler: createAssignment(serverCtx)},
 		{Method: http.MethodGet, Path: "/api/class/:id/assignments", Handler: listAssignments(serverCtx)},
 		{Method: http.MethodGet, Path: "/api/assignment/:aid", Handler: assignmentDetail(serverCtx)},
+		{Method: http.MethodPost, Path: "/api/assignment/:aid/questions", Handler: addQuestion(serverCtx)},
 		{Method: http.MethodPost, Path: "/api/assignment/:aid/submit", Handler: submitAssignment(serverCtx)},
 		{Method: http.MethodGet, Path: "/api/assignment/:aid/submissions", Handler: listSubmissions(serverCtx)},
 		{Method: http.MethodPost, Path: "/api/assignment/submission/:sid/grade", Handler: gradeSubmission(serverCtx)},
@@ -616,9 +617,52 @@ func assignmentDetail(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		if _, ok := requireClassMember(w, r, svcCtx, a.ClassId, cu); !ok {
 			return
 		}
-		// 学生看自己的提交
+		// 题目列表：学生端不返回正确答案字段（Answer 标记了 json:"-"）
+		questions, _ := svcCtx.ClassStore.ListQuestions(aid)
 		sub, _ := svcCtx.ClassStore.GetMySubmission(aid, cu.id)
-		httpx.WriteJson(w, 200, map[string]interface{}{"assignment": a, "mySubmission": sub})
+		httpx.WriteJson(w, 200, map[string]interface{}{"assignment": a, "questions": questions, "mySubmission": sub})
+	}
+}
+
+// addQuestion 老师给作业加客观题
+func addQuestion(svcCtx *svc.ServiceContext) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cu, ok := currentUser(w, r, svcCtx)
+		if !ok {
+			return
+		}
+		aid := parseIntPath(r, "aid")
+		a, err := svcCtx.ClassStore.GetAssignment(aid)
+		if err != nil {
+			httpx.WriteJson(w, 404, map[string]string{"message": "作业不存在"})
+			return
+		}
+		if !requireTeacher(w, r, svcCtx, a.ClassId, cu) {
+			return
+		}
+		var req struct {
+			Type    string `json:"type"`
+			Stem    string `json:"stem"`
+			Options string `json:"options"`
+			Answer  string `json:"answer"`
+			Score   int    `json:"score"`
+		}
+		body(r, &req)
+		if req.Stem == "" || req.Answer == "" {
+			httpx.WriteJson(w, 400, map[string]string{"message": "题干和答案不能为空"})
+			return
+		}
+		if req.Score <= 0 {
+			req.Score = 5
+		}
+		id, err := svcCtx.ClassStore.InsertQuestion(&model.QuestionRow{
+			AssignmentId: aid, Type: req.Type, Stem: req.Stem, Options: req.Options, Answer: req.Answer, Score: req.Score,
+		})
+		if err != nil {
+			httpx.WriteJson(w, 500, map[string]string{"message": err.Error()})
+			return
+		}
+		httpx.WriteJson(w, 200, map[string]interface{}{"id": id})
 	}
 }
 
@@ -640,8 +684,9 @@ func submitAssignment(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 		var req struct {
-			Content string `json:"content"`
-			FileUrl string `json:"fileUrl"`
+			Content string            `json:"content"`
+			FileUrl string            `json:"fileUrl"`
+			Answers map[string]string `json:"answers"` // key=questionId, value=学生选项
 		}
 		body(r, &req)
 		err = svcCtx.ClassStore.UpsertSubmission(&model.SubmissionRow{
@@ -649,6 +694,23 @@ func submitAssignment(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		})
 		if err != nil {
 			httpx.WriteJson(w, 500, map[string]string{"message": err.Error()})
+			return
+		}
+		// 客观题自动判分：遍历题目，比对答案，累计 auto_score
+		if len(req.Answers) > 0 {
+			questions, _ := svcCtx.ClassStore.ListQuestions(aid)
+			autoScore := 0
+			answersJSON, _ := json.Marshal(req.Answers)
+			sub, _ := svcCtx.ClassStore.GetMySubmission(aid, cu.id)
+			for _, q := range questions {
+				if pick, ok := req.Answers[fmt.Sprintf("%d", q.Id)]; ok && strings.EqualFold(pick, q.Answer) {
+					autoScore += q.Score
+				}
+			}
+			if sub != nil {
+				_ = svcCtx.ClassStore.UpdateSubmissionAutoScore(sub.Id, string(answersJSON), autoScore)
+			}
+			httpx.WriteJson(w, 200, map[string]interface{}{"message": "提交成功", "autoScore": autoScore})
 			return
 		}
 		httpx.WriteJson(w, 200, map[string]string{"message": "提交成功"})
