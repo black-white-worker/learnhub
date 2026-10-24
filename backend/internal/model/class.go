@@ -418,6 +418,66 @@ func (m *ClassModel) ListReplies(discussionId int64) ([]*ReplyRow, error) {
 	return rows, err
 }
 
+// ---- 成绩与学情 ----
+
+type GradeRow struct {
+	UserId        int64   `db:"user_id" json:"userId"`
+	Username      string  `db:"username" json:"username"`
+	Role          string  `db:"role" json:"role"`
+	AvgScore      float64 `db:"avg_score" json:"avgScore"`           // 作业平均分（有分的）
+	AssignmentCnt int     `db:"assignment_cnt" json:"assignmentCnt"` // 已交作业数
+	SigninCnt     int     `db:"signin_cnt" json:"signinCnt"`         // 签到次数
+	TotalScore    float64 `db:"total_score" json:"totalScore"`       // 加权总分（后端按权重算）
+}
+
+// ListGrades 聚合班级内每个学生的作业平均分、已交数、签到次数。
+// 依赖 signin_records（互动功能分支）和 assignment_submissions（V7）表。
+func (m *ClassModel) ListGrades(classId int64) ([]*GradeRow, error) {
+	var rows []*GradeRow
+	err := m.conn.QueryRowsCtx(context.Background(), &rows, `
+		SELECT cm.user_id AS user_id, u.username AS username, cm.role AS role,
+		       COALESCE((
+		         SELECT AVG(COALESCE(s.auto_score, s.score))
+		         FROM assignment_submissions s
+		         JOIN assignments a ON s.assignment_id=a.id
+		         WHERE a.class_id=? AND s.user_id=cm.user_id AND s.score IS NOT NULL
+		       ), 0) AS avg_score,
+		       COALESCE((
+		         SELECT COUNT(*) FROM assignment_submissions s
+		         JOIN assignments a ON s.assignment_id=a.id
+		         WHERE a.class_id=? AND s.user_id=cm.user_id
+		       ), 0) AS assignment_cnt,
+		       COALESCE((
+		         SELECT COUNT(*) FROM signin_records r
+		         JOIN class_signin cs ON r.signin_id=cs.id
+		         WHERE cs.class_id=? AND r.user_id=cm.user_id
+		       ), 0) AS signin_cnt,
+		       0 AS total_score
+		FROM class_members cm JOIN users u ON cm.user_id=u.id
+		WHERE cm.class_id=?
+		ORDER BY avg_score DESC
+	`, classId, classId, classId, classId)
+	return rows, err
+}
+
+// GetGradeRule 取班级成绩权重
+func (m *ClassModel) GetGradeRule(classId int64) (videoW, assignW, signinW, examW int, err error) {
+	type rule struct {
+		Video  int `db:"video_weight"`
+		Assign int `db:"assignment_weight"`
+		Signin int `db:"signin_weight"`
+		Exam   int `db:"exam_weight"`
+	}
+	var r rule
+	err = m.conn.QueryRowCtx(context.Background(), &r,
+		"SELECT video_weight, assignment_weight, signin_weight, exam_weight FROM class_grade_rules WHERE class_id=?", classId)
+	if err != nil {
+		// 没配过就用默认
+		return 30, 50, 10, 10, nil
+	}
+	return r.Video, r.Assign, r.Signin, r.Exam, nil
+}
+
 // ---- 作业客观题 ----
 
 type QuestionRow struct {

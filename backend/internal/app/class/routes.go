@@ -79,6 +79,9 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 		{Method: http.MethodGet, Path: "/api/admin/users", Handler: listAllUsers(serverCtx)},
 		{Method: http.MethodPost, Path: "/api/user/apply-teacher", Handler: applyTeacher(serverCtx)},
 		{Method: http.MethodPost, Path: "/api/admin/users/role", Handler: updateUserRole(serverCtx)},
+
+		// 成绩与学情
+		{Method: http.MethodGet, Path: "/api/class/:id/grades", Handler: listGrades(serverCtx)},
 	}
 
 	server.AddRoutes(
@@ -279,8 +282,8 @@ func classDetail(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			inviteCode = invs[len(invs)-1].Code
 		}
 		httpx.WriteJson(w, 200, map[string]interface{}{
-			"class":     c,
-			"members":   members,
+			"class":      c,
+			"members":    members,
 			"courseIds":  courseIds,
 			"inviteCode": inviteCode,
 		})
@@ -953,10 +956,8 @@ func updateUserRole(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	}
 }
 
-// ---- 签到 ----
-
-// startSignin 老师发起签到：生成6位码，5分钟有效
-func startSignin(svcCtx *svc.ServiceContext) http.HandlerFunc {
+// listGrades 老师端查看全班成绩聚合表（作业平均分、签到次数、加权总分、排名）
+func listGrades(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cu, ok := currentUser(w, r, svcCtx)
 		if !ok {
@@ -966,96 +967,20 @@ func startSignin(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		if !requireTeacher(w, r, svcCtx, classId, cu) {
 			return
 		}
-		code := rand6Code()
-		expires := time.Now().Add(5 * time.Minute)
-		id, err := svcCtx.ClassStore.CreateSignin(&model.SigninRow{
-			ClassId: classId, TeacherId: cu.id, Code: code, ExpiresAt: expires,
+		rows, err := svcCtx.ClassStore.ListGrades(classId)
+		if err != nil {
+			httpx.WriteJson(w, 500, map[string]string{"message": err.Error()})
+			return
+		}
+		vW, aW, sW, _, _ := svcCtx.ClassStore.GetGradeRule(classId)
+		// 用权重算总分（视频权重暂时给满分，等视频进度聚合接入再替换）
+		for i, g := range rows {
+			g.TotalScore = g.AvgScore*float64(aW)/100 + float64(g.SigninCnt*10)*float64(sW)/100 + 100*float64(vW)/100
+			_ = i
+		}
+		httpx.WriteJson(w, 200, map[string]interface{}{
+			"rule": map[string]int{"video": vW, "assignment": aW, "signin": sW},
+			"rows": rows,
 		})
-		if err != nil {
-			httpx.WriteJson(w, 500, map[string]string{"message": err.Error()})
-			return
-		}
-		httpx.WriteJson(w, 200, map[string]interface{}{"id": id, "code": code, "expiresAt": expires})
-	}
-}
-
-// getActiveSignin 查当前进行中的签到（学生端显示签到码输入框；老师端显示当前码）
-func getActiveSignin(svcCtx *svc.ServiceContext) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		cu, ok := currentUser(w, r, svcCtx)
-		if !ok {
-			return
-		}
-		classId := parseIntPath(r, "id")
-		if _, ok := requireClassMember(w, r, svcCtx, classId, cu); !ok {
-			return
-		}
-		s, err := svcCtx.ClassStore.GetActiveSignin(classId)
-		if err != nil {
-			httpx.WriteJson(w, 200, nil)
-			return
-		}
-		httpx.WriteJson(w, 200, s)
-	}
-}
-
-// doSignin 学生提交签到码
-func doSignin(svcCtx *svc.ServiceContext) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		cu, ok := currentUser(w, r, svcCtx)
-		if !ok {
-			return
-		}
-		classId := parseIntPath(r, "id")
-		if _, ok := requireClassMember(w, r, svcCtx, classId, cu); !ok {
-			return
-		}
-		var req struct {
-			Code string `json:"code"`
-		}
-		body(r, &req)
-		s, err := svcCtx.ClassStore.GetSigninByCode(strings.TrimSpace(req.Code))
-		if err != nil {
-			httpx.WriteJson(w, 400, map[string]string{"message": "签到码无效"})
-			return
-		}
-		if s.ClassId != classId {
-			httpx.WriteJson(w, 400, map[string]string{"message": "签到码不属于本班级"})
-			return
-		}
-		if s.ExpiresAt.Before(time.Now()) {
-			httpx.WriteJson(w, 400, map[string]string{"message": "签到已结束"})
-			return
-		}
-		if err := svcCtx.ClassStore.AddSigninRecord(s.Id, cu.id); err != nil {
-			httpx.WriteJson(w, 500, map[string]string{"message": err.Error()})
-			return
-		}
-		httpx.WriteJson(w, 200, map[string]string{"message": "签到成功"})
-	}
-}
-
-// listSigninRecords 老师查看已签名单
-func listSigninRecords(svcCtx *svc.ServiceContext) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		cu, ok := currentUser(w, r, svcCtx)
-		if !ok {
-			return
-		}
-		classId := parseIntPath(r, "id")
-		if !requireTeacher(w, r, svcCtx, classId, cu) {
-			return
-		}
-		s, err := svcCtx.ClassStore.GetActiveSignin(classId)
-		if err != nil {
-			httpx.WriteJson(w, 200, []interface{}{})
-			return
-		}
-		list, err := svcCtx.ClassStore.ListSigninRecords(s.Id)
-		if err != nil {
-			httpx.WriteJson(w, 500, map[string]string{"message": err.Error()})
-			return
-		}
-		httpx.WriteJson(w, 200, list)
 	}
 }

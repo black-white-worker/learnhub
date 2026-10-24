@@ -50,6 +50,18 @@
           </div>
         </el-tab-pane>
 
+        <el-tab-pane v-if="isTeacher" label="成绩" name="grade">
+          <el-table :data="gradeRows" size="small" style="margin-top:10px">
+            <el-table-column prop="username" label="学生" />
+            <el-table-column prop="avgScore" label="作业平均分" />
+            <el-table-column prop="assignmentCnt" label="已交作业" />
+            <el-table-column prop="signinCnt" label="签到次数" />
+            <el-table-column prop="totalScore" label="加权总分">
+              <template #default="{ row }">{{ row.totalScore.toFixed(1) }}</template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+
         <el-tab-pane label="签到" name="signin">
           <div v-if="isTeacher" class="toolbar">
             <el-button type="primary" @click="startSignin">发起签到（5分钟有效）</el-button>
@@ -132,6 +144,7 @@ const currentHw = ref(null)
 const mySubmission = ref('')
 const myScore = ref(null)
 const myComment = ref('')
+const gradeRows = ref([])
 const hwQuestions = ref([])
 const myAnswers = ref({})
 
@@ -162,6 +175,7 @@ async function load() {
     loadNotices()
     loadHw()
     loadDiscuss()
+    loadGrades()
     loadSignin()
   } catch (e) {
     ElMessage.error('加载失败')
@@ -181,6 +195,14 @@ async function loadHw() {
 async function loadDiscuss() {
   const r = await axios.get(`/api/class/${classId}/discussions`, auth)
   discussions.value = r.data || []
+}
+async function loadGrades() {
+  try {
+    const r = await axios.get(`/api/class/${classId}/grades`, auth)
+    gradeRows.value = r.data?.rows || []
+  } catch (e) {
+    gradeRows.value = []
+  }
 }
 async function loadSignin() {
   try {
