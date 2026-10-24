@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"learningplatform/internal/app/class"
 	"learningplatform/internal/app/course"
 	"learningplatform/internal/app/user"
 	"learningplatform/internal/svc"
@@ -17,5 +18,6 @@ import (
 func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 	user.RegisterRoutes(server, serverCtx)
 	course.RegisterRoutes(server, serverCtx)
+	class.RegisterRoutes(server, serverCtx)
 	// 未来：ai.RegisterRoutes(server, serverCtx)
 }

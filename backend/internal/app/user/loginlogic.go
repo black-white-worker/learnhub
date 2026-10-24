@@ -55,7 +55,7 @@ func (l *LoginLogic) Login(req *LoginRequest) (resp *LoginResponse, err error) {
 
 	// 4. 会话信息序列化为 JSON 写入 Redis
 	// key = login:token:{token}，value = {"username":..., "nickname":...}
-	session := model.SessionUser{Username: u.Username, Nickname: u.Nickname}
+	session := model.SessionUser{Username: u.Username, Nickname: u.Nickname, Role: u.Role}
 	data, err := json.Marshal(session)
 	if err != nil {
 		return nil, errors.New("会话序列化失败")

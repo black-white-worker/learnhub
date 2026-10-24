@@ -19,6 +19,8 @@ type ServiceContext struct {
 	UserStore *model.UserModel
 	// 课程模块 MySQL 数据访问层（课程元数据持久化）
 	CourseStore *model.CourseModel
+	// 班级模块数据访问层
+	ClassStore *model.ClassModel
 	// Redis 缓存客户端，登录成功后把 token 写入 Redis
 	Redis *redis.Redis
 }
@@ -28,6 +30,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		Config:    c,
 		UserStore: model.NewUserModel(sqlx.NewMysql(c.Mysql.DataSource)),
 		CourseStore: model.NewCourseModel(sqlx.NewMysql(c.Mysql.DataSource)),
+		ClassStore:  model.NewClassModel(sqlx.NewMysql(c.Mysql.DataSource)),
 		Redis:     redis.MustNewRedis(c.Redis),
 	}
 

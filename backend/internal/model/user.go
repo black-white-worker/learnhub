@@ -9,11 +9,11 @@ import (
 )
 
 // User 表示一个用户（对应数据库 users 表）。
-// 原内存版改为数据库版后，字段通过 db 标签与表列一一对应。
 type User struct {
 	Username string `db:"username"`
 	Password string `db:"password"`
 	Nickname string `db:"nickname"`
+	Role     string `db:"role"`
 }
 
 // SessionUser 登录会话信息（登录成功后以 JSON 形式写入 Redis）。
@@ -21,6 +21,7 @@ type User struct {
 type SessionUser struct {
 	Username string `json:"username"`
 	Nickname string `json:"nickname"`
+	Role     string `json:"role"` // admin/teacher/student
 }
 
 // UserModel 基于 MySQL 的用户数据访问层。
@@ -40,7 +41,7 @@ func NewUserModel(conn sqlx.SqlConn) *UserModel {
 func (m *UserModel) Verify(username, password string) bool {
 	var u User
 	err := m.conn.QueryRowCtx(context.Background(), &u,
-		"SELECT username, password, nickname FROM users WHERE username = ? LIMIT 1", username)
+		"SELECT username, password, nickname, role FROM users WHERE username = ? LIMIT 1", username)
 	if err != nil {
 		return false
 	}
@@ -52,7 +53,7 @@ func (m *UserModel) Verify(username, password string) bool {
 func (m *UserModel) GetUser(username string) *User {
 	var u User
 	err := m.conn.QueryRowCtx(context.Background(), &u,
-		"SELECT username, password, nickname FROM users WHERE username = ? LIMIT 1", username)
+		"SELECT username, password, nickname, role FROM users WHERE username = ? LIMIT 1", username)
 	if err != nil {
 		return nil
 	}
@@ -80,5 +81,28 @@ func (m *UserModel) Add(username, password string) error {
 func (m *UserModel) Delete(username string) error {
 	_, err := m.conn.ExecCtx(context.Background(),
 		"DELETE FROM users WHERE username = ?", username)
+	return err
+}
+
+// GetIdByUsername 根据用户名查用户 id（班级模块用）。
+func (m *UserModel) GetIdByUsername(username string) (int64, error) {
+	var id int64
+	err := m.conn.QueryRowCtx(context.Background(), &id,
+		"SELECT id FROM users WHERE username = ? LIMIT 1", username)
+	return id, err
+}
+
+// ListAll 管理员用：返回所有用户
+func (m *UserModel) ListAll() ([]*User, error) {
+	var users []*User
+	err := m.conn.QueryRowsCtx(context.Background(), &users,
+		"SELECT username, password, nickname, role FROM users ORDER BY id")
+	return users, err
+}
+
+// UpdateRole 修改用户角色（管理员用）
+func (m *UserModel) UpdateRole(username, role string) error {
+	_, err := m.conn.ExecCtx(context.Background(),
+		"UPDATE users SET role = ? WHERE username = ?", role, username)
 	return err
 }

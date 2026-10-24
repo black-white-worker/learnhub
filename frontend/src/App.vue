@@ -2,7 +2,7 @@
 import { ref, watch, computed } from 'vue'
 import { useRouter, useRoute, RouterView } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Reading, Notebook, EditPen, Collection, ArrowDown } from '@element-plus/icons-vue'
+import { Reading, Notebook, EditPen, Collection, ArrowDown, User } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -31,6 +31,7 @@ const menus = [
       { label: '课程列表', path: '/courses' },
     ],
   },
+  { label: '班级中心', icon: User, path: '/classes' },
   { label: '考试中心', icon: EditPen, path: '' },
   { label: '资料库', icon: Collection, path: '' },
 ]

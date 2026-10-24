@@ -57,6 +57,16 @@ const router = createRouter({
       // 课程详情页（来自「课程编辑」分支）：卡片点击进入，展示封面 / 基本信息 / 视频 / 资源
       component: () => import('../views/CourseDetailView.vue'),
     },
+    {
+      path: '/classes',
+      name: 'classes',
+      component: () => import('../views/ClassListView.vue'),
+    },
+    {
+      path: '/class/:id',
+      name: 'class-detail',
+      component: () => import('../views/ClassDetailView.vue'),
+    },
   ],
 })
 
