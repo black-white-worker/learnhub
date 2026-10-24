@@ -417,3 +417,32 @@ func (m *ClassModel) ListReplies(discussionId int64) ([]*ReplyRow, error) {
 		"SELECT id, discussion_id, user_id, content, created_at FROM discussion_replies WHERE discussion_id=? ORDER BY created_at", discussionId)
 	return rows, err
 }
+
+// ---- 公告已读未读 ----
+
+// MarkAnnouncementRead 记录当前用户已读某公告（唯一键冲突忽略，幂等）
+func (m *ClassModel) MarkAnnouncementRead(announcementId, userId int64) error {
+	_, err := m.conn.ExecCtx(context.Background(),
+		"INSERT IGNORE INTO announcement_reads (announcement_id, user_id) VALUES (?,?)",
+		announcementId, userId)
+	return err
+}
+
+// ListReadUserIds 返回某公告所有已读用户 id（老师端统计已读名单）
+func (m *ClassModel) ListReadUserIds(announcementId int64) ([]int64, error) {
+	var ids []int64
+	err := m.conn.QueryRowsCtx(context.Background(), &ids,
+		"SELECT user_id FROM announcement_reads WHERE announcement_id=?", announcementId)
+	return ids, err
+}
+
+// CountUnreadByClass 返回当前用户在某班未读公告数（首页/铃铛红点用）
+func (m *ClassModel) CountUnreadByClass(classId, userId int64) (int64, error) {
+	var n int64
+	err := m.conn.QueryRowCtx(context.Background(), &n,
+		`SELECT COUNT(*) FROM announcements a
+		 WHERE a.class_id=? AND NOT EXISTS (
+		   SELECT 1 FROM announcement_reads r WHERE r.announcement_id=a.id AND r.user_id=?
+		 )`, classId, userId)
+	return n, err
+}
