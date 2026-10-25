@@ -75,7 +75,7 @@ function coverBg(course) {
     <!-- 2. 课程区：真实课程卡片，点击进入详情 -->
     <section class="section" v-loading="loading">
       <div class="section-header">
-        <h2>我的课程</h2>
+        <h2>在线课程</h2>
         <span class="count">共 {{ filteredCourses.length }} 门</span>
       </div>
 

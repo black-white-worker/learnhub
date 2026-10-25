@@ -82,6 +82,16 @@ const router = createRouter({
       name: 'exam-detail',
       component: () => import('../views/ExamDetailView.vue'),
     },
+    {
+      path: '/admin/users',
+      name: 'admin-users',
+      component: () => import('../views/admin/AdminUsersView.vue'),
+    },
+    {
+      path: '/admin/courses',
+      name: 'admin-courses',
+      component: () => import('../views/admin/AdminCoursesView.vue'),
+    },
   ],
 })
 

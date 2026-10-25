@@ -55,14 +55,24 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 		{Method: http.MethodGet, Path: "/api/class/:id/signin", Handler: getActiveSigninHandler(serverCtx)},
 		{Method: http.MethodPost, Path: "/api/class/:id/signin/do", Handler: doSigninHandler(serverCtx)},
 		{Method: http.MethodGet, Path: "/api/class/:id/signin/records", Handler: listSigninRecordsHandler(serverCtx)},
+		{Method: http.MethodGet, Path: "/api/class/:id/signin/history", Handler: listSigninsHistoryHandler(serverCtx)},
 
-		// 管理员：用户管理
+		// 管理员：用户管理（完整 CRUD）
 		{Method: http.MethodGet, Path: "/api/admin/users", Handler: listAllUsersHandler(serverCtx)},
+		{Method: http.MethodPost, Path: "/api/admin/users", Handler: AdminCreateUserHandler(serverCtx)},
+		{Method: http.MethodPut, Path: "/api/admin/users", Handler: AdminUpdateUserHandler(serverCtx)},
+		{Method: http.MethodDelete, Path: "/api/admin/users", Handler: AdminDeleteUserHandler(serverCtx)},
+		{Method: http.MethodPost, Path: "/api/admin/users/reset-password", Handler: AdminResetPasswordHandler(serverCtx)},
 		{Method: http.MethodPost, Path: "/api/user/apply-teacher", Handler: applyTeacherHandler(serverCtx)},
 		{Method: http.MethodPost, Path: "/api/admin/users/role", Handler: updateUserRoleHandler(serverCtx)},
 
 		// 成绩与学情
 		{Method: http.MethodGet, Path: "/api/class/:id/grades", Handler: listGradesHandler(serverCtx)},
+
+		// 站内消息（问题3）
+		{Method: http.MethodGet, Path: "/api/notifications", Handler: listNotificationsHandler(serverCtx)},
+		{Method: http.MethodPost, Path: "/api/notifications/read-all", Handler: markAllNotificationsReadHandler(serverCtx)},
+		{Method: http.MethodPost, Path: "/api/notifications/:id/read", Handler: markNotificationReadHandler(serverCtx)},
 	}
 
 	server.AddRoutes(

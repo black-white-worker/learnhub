@@ -3,6 +3,7 @@ package logic
 import (
 	"context"
 	"database/sql"
+	"strconv"
 	"time"
 
 	"learningplatform/internal/model"
@@ -40,5 +41,12 @@ func (l *CreateAssignmentLogic) CreateAssignment(classId int64, req *class.Creat
 	if err != nil {
 		return nil, err
 	}
+	// 问题3：发布作业时给班级其他成员广播通知
+	_ = l.svcCtx.ClassStore.BroadcastNotification(
+		classId, cu.Id, "assignment",
+		"新作业："+req.Title,
+		req.Description,
+		"/class/"+strconv.FormatInt(classId, 10),
+	)
 	return &class.CreateAssignmentResp{Id: id}, nil
 }

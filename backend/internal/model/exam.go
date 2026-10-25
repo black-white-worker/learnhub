@@ -29,7 +29,7 @@ type ExamQuestionRow struct {
 	Type       string `db:"type" json:"type"`
 	Stem       string `db:"stem" json:"stem"`
 	Options    string `db:"options" json:"options"`
-	Answer     string `db:"answer" json:"-"` // 不返回给学生
+	Answer     string `db:"answer" json:"answer"`
 	Score      int    `db:"score" json:"score"`
 }
 

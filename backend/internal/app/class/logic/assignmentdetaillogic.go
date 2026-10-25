@@ -27,5 +27,11 @@ func (l *AssignmentDetailLogic) AssignmentDetail(aid int64, cu *class.CtxUser) (
 	}
 	questions, _ := l.svcCtx.ClassStore.ListQuestions(aid)
 	sub, _ := l.svcCtx.ClassStore.GetMySubmission(aid, cu.Id)
+	// 学生端不返回答案，老师/管理员端才返回
+	if cu.Role != "admin" && cu.Role != "teacher" {
+		for _, q := range questions {
+			q.Answer = ""
+		}
+	}
 	return &class.AssignmentDetailResp{Assignment: a, Questions: questions, MySubmission: sub}, nil
 }

@@ -2,7 +2,6 @@ package logic
 
 import (
 	"context"
-	"net/http"
 
 	"learningplatform/internal/app/class"
 	"learningplatform/internal/svc"
@@ -23,7 +22,7 @@ func (l *GetActiveSigninLogic) GetActiveSignin(classId int64, cu *class.CtxUser)
 	}
 	s, err := l.svcCtx.ClassStore.GetActiveSignin(classId)
 	if err != nil {
-		return nil, &class.BizError{Code: http.StatusNotFound, Msg: "当前没有进行中的签到"}
+		return nil, nil
 	}
 	return s, nil
 }

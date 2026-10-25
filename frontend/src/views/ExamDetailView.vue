@@ -24,6 +24,12 @@ const remainSeconds = ref(0)
 
 const isTeacher = computed(() => detail.value?.myRole === 'teacher' || detail.value?.myRole === 'admin')
 
+// 把 "A,C" 这种字符串拆成 ["A","C"] 给 checkbox-group 用
+function parseMulti(val) {
+  if (!val) return []
+  return String(val).split(',').map(s => s.trim()).filter(Boolean)
+}
+
 async function load() {
   try {
     const r = await axios.get(`/api/exam/${examId}`, auth)
@@ -144,15 +150,49 @@ onMounted(load)
     <template v-if="isTeacher">
       <el-divider />
       <h3>题目管理（共 {{ detail.questions?.length || 0 }} 题）</h3>
+
+      <!-- 已添加题目列表（问题6：看得到） -->
+      <el-table v-if="detail.questions?.length" :data="detail.questions" size="small" style="margin-bottom:16px">
+        <el-table-column type="index" label="#" width="50" />
+        <el-table-column prop="stem" label="题干" min-width="200" />
+        <el-table-column label="类型" width="90">
+          <template #default="{ row }">
+            <el-tag size="small" :type="{ single:'info', multiple:'warning', judge:'success', essay:'' }[row.type] || 'info'">
+              {{ { single:'单选', multiple:'多选', judge:'判断', essay:'主观' }[row.type] || row.type }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="选项" min-width="160">
+          <template #default="{ row }">
+            <span v-if="row.options">{{ JSON.parse(row.options).map((o,i)=>'ABCD'[i]+'.'+o).join('  ') }}</span>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="答案" width="120">
+          <template #default="{ row }">
+            <span v-if="row.type==='judge'">{{ row.answer==='true'?'对':'错' }}</span>
+            <span v-else>{{ row.answer }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="score" label="分值" width="70" />
+      </el-table>
+
+      <!-- 添加题目表单（问题6：参考腾讯问卷的规范出题） -->
+      <el-alert type="info" :closable="false" title="添加题目：先选题型，再填题干、选项和答案" style="margin-bottom:10px" />
       <div class="add-q-form">
         <el-select v-model="newQuestion.type" style="width:110px">
           <el-option label="单选题" value="single" />
+          <el-option label="多选题" value="multiple" />
           <el-option label="判断题" value="judge" />
           <el-option label="主观题" value="essay" />
         </el-select>
         <el-input v-model="newQuestion.stem" placeholder="题干" style="width:220px" />
-        <el-input v-if="newQuestion.type === 'single'" v-model="newQuestion.optionsText" placeholder='选项逗号分隔' style="width:220px" />
-        <el-input v-if="newQuestion.type !== 'essay'" v-model="newQuestion.answer" placeholder="答案" style="width:120px" />
+        <el-input v-if="(newQuestion.type==='single'||newQuestion.type==='multiple')" v-model="newQuestion.optionsText" placeholder='选项用逗号分隔' style="width:220px" />
+        <el-radio-group v-if="newQuestion.type==='judge'" v-model="newQuestion.answer">
+          <el-radio value="true">对</el-radio>
+          <el-radio value="false">错</el-radio>
+        </el-radio-group>
+        <el-input v-else-if="newQuestion.type!=='essay'" v-model="newQuestion.answer" :placeholder="newQuestion.type==='multiple'?'答案字母逗号分隔，如 A,C':'答案(A/B/C/D)'" style="width:160px" />
         <el-input-number v-model="newQuestion.score" :min="1" :max="100" style="width:100px" />
         <el-button size="small" type="primary" @click="addQuestion">添加</el-button>
       </div>
@@ -198,9 +238,14 @@ onMounted(load)
             {{ 'ABCD'[oi] }}. {{ opt }}
           </el-radio>
         </el-radio-group>
+        <el-checkbox-group v-else-if="q.type === 'multiple'" :model-value="parseMulti(answers[q.id])" @change="val => answers[q.id] = val.sort().join(',')" style="margin-top:6px">
+          <el-checkbox v-for="(opt, oi) in (q.options ? JSON.parse(q.options) : [])" :key="oi" :value="'ABCD'[oi]">
+            {{ 'ABCD'[oi] }}. {{ opt }}
+          </el-checkbox>
+        </el-checkbox-group>
         <el-radio-group v-else-if="q.type === 'judge'" v-model="answers[q.id]" style="margin-top:6px">
-          <el-radio value="true">正确</el-radio>
-          <el-radio value="false">错误</el-radio>
+          <el-radio value="true">对</el-radio>
+          <el-radio value="false">错</el-radio>
         </el-radio-group>
         <el-input v-else v-model="answers[q.id]" type="textarea" :rows="3" placeholder="请作答" style="margin-top:6px" />
       </div>

@@ -89,6 +89,10 @@ func (l *ExamLogic) Detail(examId int64, cu *class.CtxUser) (interface{}, error)
 	}
 
 	sub, _ := l.svcCtx.ExamStore.GetMySubmission(examId, cu.Id)
+	// 学生端不返回答案
+	for _, q := range questions {
+		q.Answer = ""
+	}
 	return map[string]interface{}{
 		"exam":         e,
 		"questions":    questions,
@@ -157,7 +161,16 @@ func (l *ExamLogic) Submit(examId int64, req *exam.SubmitReq, cu *class.CtxUser)
 			continue
 		}
 		pick, ok := req.Answers[strconv.FormatInt(q.Id, 10)]
-		if ok && pick == q.Answer {
+		if !ok {
+			continue
+		}
+		if q.Type == "multiple" {
+			if class.SameMultiChoice(pick, q.Answer) {
+				autoScore += q.Score
+			}
+			continue
+		}
+		if pick == q.Answer {
 			autoScore += q.Score
 		}
 	}

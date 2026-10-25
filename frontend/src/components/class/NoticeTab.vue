@@ -5,15 +5,37 @@
       <el-input v-model="newNotice.content" type="textarea" placeholder="公告内容" style="width:400px" />
       <el-button type="primary" @click="postNotice">发布</el-button>
     </div>
-    <div v-for="n in notices" :key="n.id" class="notice-item" @click="openNotice(n)">
-      <el-badge is-dot :hidden="n.readByMe" class="notice-dot">
-        <el-tag v-if="n.isTop" type="warning" size="small">置顶</el-tag>
-      </el-badge>
-      <b :class="{ 'notice-unread': !n.readByMe }">{{ n.title }}</b>
-      <span v-if="isTeacher" class="read-stat">已读 {{ n.readCount }}</span>
-      <p>{{ n.content }}</p>
-      <small>{{ n.createdAt }}</small>
+
+    <!-- 公告卡片列表（问题8：卡片明显，不再全白融入背景） -->
+    <div class="notice-list">
+      <el-card
+        v-for="n in notices"
+        :key="n.id"
+        class="notice-card"
+        shadow="hover"
+        @click="openNotice(n)"
+      >
+        <div class="notice-title-row">
+          <el-badge is-dot :hidden="n.readByMe">
+            <el-tag v-if="n.isTop" type="warning" size="small">置顶</el-tag>
+          </el-badge>
+          <b :class="{ 'notice-unread': !n.readByMe }">{{ n.title }}</b>
+        </div>
+        <p class="notice-snippet">{{ n.content }}</p>
+        <div class="notice-footer">
+          <small>{{ n.createdAt }}</small>
+          <span v-if="isTeacher" class="read-stat">已读 {{ n.readCount }}</span>
+        </div>
+      </el-card>
     </div>
+
+    <!-- 公告详情弹窗 -->
+    <el-dialog v-model="detailVisible" :title="current?.title" width="600px">
+      <p class="notice-full-content">{{ current?.content }}</p>
+      <template #footer>
+        <el-button @click="detailVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -32,6 +54,8 @@ const auth = { headers: { Authorization: 'Bearer ' + token } }
 
 const notices = ref([])
 const newNotice = ref({ title: '', content: '' })
+const detailVisible = ref(false)
+const current = ref(null)
 
 async function loadNotices() {
   const r = await axios.get(`/api/class/${props.classId}/announcements`, auth)
@@ -53,16 +77,15 @@ async function postNotice() {
   }
 }
 
-// 打开公告：未读则调接口标记已读，本地立刻把红点去掉
 async function openNotice(n) {
+  current.value = n
+  detailVisible.value = true
   if (n.readByMe) return
   try {
     await axios.post(`/api/class/announcement/${n.id}/read`, {}, auth)
     n.readByMe = true
     n.readCount = (n.readCount || 0) + 1
-  } catch (e) {
-    // 标记已读失败不影响浏览
-  }
+  } catch (e) {}
 }
 
 onMounted(loadNotices)
@@ -71,8 +94,16 @@ defineExpose({ reload: loadNotices })
 
 <style scoped>
 .toolbar { display: flex; gap: 10px; margin-bottom: 16px; align-items: center; }
-.notice-item { padding: 10px; border-bottom: 1px solid #eee; cursor: pointer; }
-.notice-unread { color: #1f2937; }
-.read-stat { margin-left: 8px; color: #909399; font-size: 12px; }
-.notice-dot { margin-right: 4px; }
+.notice-list { display: flex; flex-direction: column; gap: 12px; }
+.notice-card { cursor: pointer; }
+.notice-card :deep(.el-card__body) { padding: 14px 16px; }
+.notice-title-row { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+.notice-unread { color: #1f2937; font-weight: 700; }
+.notice-snippet {
+  color: #6b7280; font-size: 13px; margin: 8px 0 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.notice-footer { display: flex; justify-content: space-between; margin-top: 8px; }
+.read-stat { color: #909399; font-size: 12px; }
+.notice-full-content { white-space: pre-wrap; line-height: 1.7; color: #374151; }
 </style>

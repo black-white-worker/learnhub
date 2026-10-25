@@ -2,6 +2,7 @@ package logic
 
 import (
 	"context"
+	"strconv"
 
 	"learningplatform/internal/model"
 	"learningplatform/internal/app/class"
@@ -27,5 +28,12 @@ func (l *CreateDiscussionLogic) CreateDiscussion(classId int64, req *class.Creat
 	if err != nil {
 		return nil, err
 	}
+	// 问题3：新讨论给班级其他成员广播通知
+	_ = l.svcCtx.ClassStore.BroadcastNotification(
+		classId, cu.Id, "discussion",
+		"新讨论："+req.Title,
+		req.Content,
+		"/class/"+strconv.FormatInt(classId, 10),
+	)
 	return &class.CreateDiscussionResp{Id: id}, nil
 }

@@ -102,8 +102,13 @@ onMounted(load)
 </script>
 
 <style scoped>
-.class-list-page { padding: 24px; }
+.class-list-page { padding: 24px; max-width: 1280px; margin: 0 auto; }
 .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.header h1 { font-size: 22px; margin: 0; color: #1f2937; }
 .actions { display: flex; gap: 10px; }
-.class-card { cursor: pointer; }
+.class-card { cursor: pointer; border-radius: 12px; transition: all 0.2s; }
+.class-card:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(37,99,235,0.12); }
+.class-card :deep(.el-card__body) { padding: 20px; }
+.class-card h3 { margin: 0 0 8px; font-size: 16px; color: #1f2937; }
+.class-card p { margin: 4px 0; font-size: 13px; color: #6b7280; }
 </style>

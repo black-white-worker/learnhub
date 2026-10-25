@@ -1,11 +1,20 @@
 import axios from 'axios'
 
 // 统一的后端请求实例：
-// baseURL 为 /api，配合 vite.config.js 里的代理，
-// 浏览器请求 /api/xxx 会由 Vite 转发到后端 http://localhost:8888/api/xxx
+// baseURL 为 /api，配合 vite.config.js 里的代理
 const request = axios.create({
   baseURL: '/api',
   timeout: 10000,
+})
+
+// 全局请求拦截器：自动从 localStorage 读取 token 并带上 Authorization 头。
+// 课程路由已加登录中间件，不带 token 会返回 401，导致首页课程列表为空。
+request.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token')
+  if (token) {
+    config.headers.Authorization = 'Bearer ' + token
+  }
+  return config
 })
 
 // 登录接口：提交 {username, password}，成功返回 {token, username}

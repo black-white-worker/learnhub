@@ -536,7 +536,7 @@ type QuestionRow struct {
 	Type         string `db:"type" json:"type"` // single / judge
 	Stem         string `db:"stem" json:"stem"`
 	Options      string `db:"options" json:"options"`
-	Answer       string `db:"answer" json:"-"` // 不返回给学生
+	Answer       string `db:"answer" json:"answer"`
 	Score        int    `db:"score" json:"score"`
 }
 
@@ -607,6 +607,8 @@ func (m *ClassModel) CountUnreadByClass(classId, userId int64) (int64, error) {
 type SigninRow struct {
 	Id        int64     `db:"id" json:"id"`
 	ClassId   int64     `db:"class_id" json:"classId"`
+	Title     string    `db:"title" json:"title"`
+	StartAt   time.Time `db:"start_at" json:"startAt"`
 	TeacherId int64     `db:"teacher_id" json:"teacherId"`
 	Code      string    `db:"code" json:"code"`
 	ExpiresAt time.Time `db:"expires_at" json:"expiresAt"`
@@ -624,20 +626,40 @@ type SigninRecordRow struct {
 // CreateSignin 发起一次签到
 func (m *ClassModel) CreateSignin(s *SigninRow) (int64, error) {
 	res, err := m.conn.ExecCtx(context.Background(),
-		"INSERT INTO class_signin (class_id, teacher_id, code, expires_at) VALUES (?,?,?,?)",
-		s.ClassId, s.TeacherId, s.Code, s.ExpiresAt)
+		"INSERT INTO class_signin (class_id, title, start_at, teacher_id, code, expires_at) VALUES (?,?,?,?,?,?)",
+		s.ClassId, s.Title, s.StartAt, s.TeacherId, s.Code, s.ExpiresAt)
 	if err != nil {
 		return 0, err
 	}
 	return res.LastInsertId()
 }
 
-// GetActiveSignin 取某班当前未过期的签到
+// GetActiveSignin 取某班当前进行中的签到（start_at <= now() <= expires_at）
 func (m *ClassModel) GetActiveSignin(classId int64) (*SigninRow, error) {
 	var s SigninRow
 	err := m.conn.QueryRowCtx(context.Background(), &s,
-		"SELECT id, class_id, teacher_id, code, expires_at, created_at FROM class_signin WHERE class_id=? AND expires_at>NOW() ORDER BY id DESC LIMIT 1",
+		"SELECT id, class_id, title, start_at, teacher_id, code, expires_at, created_at FROM class_signin WHERE class_id=? AND start_at<=NOW() AND expires_at>NOW() ORDER BY id DESC LIMIT 1",
 		classId)
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+// ListSigninsByClass 列出班级全部签到事件（老师端看历史 + 进行中）
+func (m *ClassModel) ListSigninsByClass(classId int64) ([]*SigninRow, error) {
+	var rows []*SigninRow
+	err := m.conn.QueryRowsCtx(context.Background(), &rows,
+		"SELECT id, class_id, title, start_at, teacher_id, code, expires_at, created_at FROM class_signin WHERE class_id=? ORDER BY id DESC",
+		classId)
+	return rows, err
+}
+
+// GetSignin 按 id 取单条签到事件
+func (m *ClassModel) GetSignin(id int64) (*SigninRow, error) {
+	var s SigninRow
+	err := m.conn.QueryRowCtx(context.Background(), &s,
+		"SELECT id, class_id, title, start_at, teacher_id, code, expires_at, created_at FROM class_signin WHERE id=?", id)
 	if err != nil {
 		return nil, err
 	}
@@ -648,7 +670,7 @@ func (m *ClassModel) GetActiveSignin(classId int64) (*SigninRow, error) {
 func (m *ClassModel) GetSigninByCode(code string) (*SigninRow, error) {
 	var s SigninRow
 	err := m.conn.QueryRowCtx(context.Background(), &s,
-		"SELECT id, class_id, teacher_id, code, expires_at, created_at FROM class_signin WHERE code=? ORDER BY id DESC LIMIT 1",
+		"SELECT id, class_id, title, start_at, teacher_id, code, expires_at, created_at FROM class_signin WHERE code=? ORDER BY id DESC LIMIT 1",
 		code)
 	if err != nil {
 		return nil, err
@@ -678,4 +700,90 @@ func (m *ClassModel) ListSigninRecords(signinId int64) ([]*SigninRecordRow, erro
 		 FROM signin_records r JOIN users u ON r.user_id=u.id
 		 WHERE r.signin_id=? ORDER BY r.signed_at`, signinId)
 	return rows, err
+}
+
+// ---- 站内通知 ----
+
+type NotificationRow struct {
+	Id        int64     `db:"id" json:"id"`
+	UserId    int64     `db:"user_id" json:"userId"`
+	Type      string    `db:"type" json:"type"`
+	Title     string    `db:"title" json:"title"`
+	Content   string    `db:"content" json:"content"`
+	LinkUrl   string    `db:"link_url" json:"linkUrl"`
+	IsRead    bool      `db:"is_read" json:"isRead"`
+	CreatedAt time.Time `db:"created_at" json:"createdAt"`
+}
+
+// InsertNotification 给单个用户写一条通知
+func (m *ClassModel) InsertNotification(n *NotificationRow) (int64, error) {
+	res, err := m.conn.ExecCtx(context.Background(),
+		"INSERT INTO notifications (user_id, type, title, content, link_url) VALUES (?,?,?,?,?)",
+		n.UserId, n.Type, n.Title, n.Content, n.LinkUrl)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// BroadcastNotification 给班级内除 senderId 外的所有成员批量写一条通知。
+// 用 INSERT ... SELECT 一条 SQL 完成，避免逐条 INSERT。
+func (m *ClassModel) BroadcastNotification(classId int64, senderId int64, nType, title, content, linkUrl string) error {
+	_, err := m.conn.ExecCtx(context.Background(),
+		`INSERT INTO notifications (user_id, type, title, content, link_url)
+		 SELECT user_id, ?, ?, ?, ? FROM class_members
+		 WHERE class_id=? AND user_id<>?`,
+		nType, title, content, linkUrl, classId, senderId)
+	return err
+}
+
+// ListNotifications 列出某用户的通知（按时间倒序）
+func (m *ClassModel) ListNotifications(userId int64, limit int) ([]*NotificationRow, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	var rows []*NotificationRow
+	err := m.conn.QueryRowsCtx(context.Background(), &rows,
+		"SELECT id, user_id, type, title, content, link_url, is_read, created_at FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT ?",
+		userId, limit)
+	return rows, err
+}
+
+// CountUnreadNotifications 某用户未读通知数
+func (m *ClassModel) CountUnreadNotifications(userId int64) (int64, error) {
+	var n int64
+	err := m.conn.QueryRowCtx(context.Background(), &n,
+		"SELECT COUNT(*) FROM notifications WHERE user_id=? AND is_read=0", userId)
+	return n, err
+}
+
+// MarkNotificationRead 标记通知已读（幂等）
+func (m *ClassModel) MarkNotificationRead(id, userId int64) error {
+	_, err := m.conn.ExecCtx(context.Background(),
+		"UPDATE notifications SET is_read=1 WHERE id=? AND user_id=?", id, userId)
+	return err
+}
+
+// MarkAllNotificationsRead 全部标已读
+func (m *ClassModel) MarkAllNotificationsRead(userId int64) error {
+	_, err := m.conn.ExecCtx(context.Background(),
+		"UPDATE notifications SET is_read=1 WHERE user_id=? AND is_read=0", userId)
+	return err
+}
+
+// ---- 邀请码：查未过期邀请码（用于问题9：只能生成一次） ----
+
+// GetActiveInvitation 返回该班当前未过期、未用满的邀请码；没有则返回 (nil, nil)
+func (m *ClassModel) GetActiveInvitation(classId int64) (*InvitationRow, error) {
+	var inv InvitationRow
+	err := m.conn.QueryRowCtx(context.Background(), &inv,
+		"SELECT id, class_id, code, expires_at, max_uses, used_count FROM class_invitations WHERE class_id=? ORDER BY id DESC LIMIT 1",
+		classId)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &inv, nil
 }

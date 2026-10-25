@@ -18,7 +18,9 @@ func startSigninHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 		classId := class.ParseIntPath(r, "id")
-		resp, err := logic.NewStartSigninLogic(r.Context(), svcCtx).StartSignin(classId, cu)
+		var req logic.StartSigninReq
+		_ = class.ParseJSON(r, &req)
+		resp, err := logic.NewStartSigninLogic(r.Context(), svcCtx).StartSignin(classId, &req, cu)
 		if err != nil {
 			class.WriteBizError(w, err)
 			return

@@ -9,32 +9,49 @@ const route = useRoute()
 
 // 当前登录用户（登录成功后由 LoginView 写入 localStorage）
 const username = ref(localStorage.getItem('username') || '')
+const userRole = ref(localStorage.getItem('role') || '')
 
 // 路由切换时同步登录状态：
-// 在登录页登录成功后跳回首页，右上角立即从"登录"变成"退出登录"
 watch(
   () => route.fullPath,
   () => {
     username.value = localStorage.getItem('username') || ''
+    userRole.value = localStorage.getItem('role') || ''
   }
 )
 
-// 顶部导航菜单：
-// path 为空的是"建设中"占位；带 children 的是下拉菜单（课程中心）
-const menus = [
-  { label: '首页', icon: Reading, path: '/' },
-  {
-    label: '课程中心',
-    icon: Notebook,
-    children: [
-      { label: '创建课程', path: '/course/create' },
-      { label: '课程列表', path: '/courses' },
-    ],
-  },
-  { label: '班级中心', icon: User, path: '/classes' },
-  { label: '考试中心', icon: EditPen, path: '/exams' },
-  { label: '资料库', icon: Collection, path: '' },
-]
+// 只有老师/管理员能创建课程（问题2）
+const canCreateCourse = computed(() => userRole.value === 'teacher' || userRole.value === 'admin')
+// 只有管理员能看到管理后台入口
+const isAdmin = computed(() => userRole.value === 'admin')
+
+// 顶部导航菜单
+const menus = computed(() => {
+  const base = [
+    { label: '首页', icon: Reading, path: '/' },
+    {
+      label: '课程中心',
+      icon: Notebook,
+      children: [
+        ...(canCreateCourse.value ? [{ label: '创建课程', path: '/course/create' }] : []),
+        { label: '课程列表', path: '/courses' },
+      ],
+    },
+    { label: '班级中心', icon: User, path: '/classes' },
+    { label: '考试中心', icon: EditPen, path: '/exams' },
+    ...(isAdmin.value
+      ? [{
+          label: '管理后台',
+          icon: Collection,
+          children: [
+            { label: '用户管理', path: '/admin/users' },
+            { label: '课程管理', path: '/admin/courses' },
+          ],
+        }]
+      : []),
+  ]
+  return base
+})
 const activeMenu = ref('/')
 
 // 课程中心下拉菜单是否高亮：路由命中创建课程/课程列表任一个就高亮
@@ -165,19 +182,19 @@ function logout() {
   position: sticky;
   top: 0;
   z-index: 100;
-  background: #fff;
-  border-bottom: 1px solid #e5e7eb;
+  background: linear-gradient(90deg, #1e3a8a 0%, #2563eb 100%);
   padding: 0;
+  box-shadow: 0 2px 8px rgba(30, 58, 138, 0.25);
 }
 
 .header-inner {
-  max-width: 1200px;
+  max-width: 1280px;
   height: 100%;
   margin: 0 auto;
   display: flex;
   align-items: center;
   gap: 32px;
-  padding: 0 16px;
+  padding: 0 24px;
 }
 
 .logo {
@@ -195,7 +212,7 @@ function logout() {
 .logo-text {
   font-size: 18px;
   font-weight: 700;
-  color: #1f2937;
+  color: #fff;
 }
 
 .menu {
@@ -208,16 +225,17 @@ function logout() {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 14px;
+  padding: 8px 16px;
   border-radius: 8px;
   cursor: pointer;
-  color: #4b5563;
+  color: rgba(255, 255, 255, 0.85);
   font-size: 14px;
   transition: all 0.2s;
 }
 
 .menu-item:hover {
-  background: #f3f4f6;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
 }
 
 .menu-arrow {
@@ -226,8 +244,8 @@ function logout() {
 }
 
 .menu-item.active {
-  color: var(--el-color-primary);
-  background: var(--el-color-primary-light-9);
+  color: #fff;
+  background: rgba(255, 255, 255, 0.2);
   font-weight: 600;
 }
 
@@ -243,22 +261,22 @@ function logout() {
   align-items: center;
   gap: 8px;
   cursor: pointer;
-  padding: 4px 8px;
+  padding: 4px 10px;
   border-radius: 8px;
 }
 .user-trigger:hover {
-  background: #f3f4f6;
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .avatar {
-  background: var(--el-color-primary);
+  background: rgba(255, 255, 255, 0.25);
   color: #fff;
   font-weight: 600;
 }
 
 .username {
   font-size: 14px;
-  color: #374151;
+  color: #fff;
 }
 
 /* ===== 内容区 / 页脚 ===== */

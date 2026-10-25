@@ -7,6 +7,8 @@ import axios from 'axios'
 const router = useRouter()
 const token = localStorage.getItem('token')
 const auth = { headers: { Authorization: 'Bearer ' + token } }
+const userRole = localStorage.getItem('role') || ''
+const canCreateExam = userRole === 'teacher' || userRole === 'admin'
 
 const classes = ref([])
 const examsByClass = ref({}) // { classId: [exam] }
@@ -80,7 +82,7 @@ onMounted(load)
   <div class="exam-list-page" v-loading="loading">
     <div class="header">
       <h1>考试中心</h1>
-      <el-button type="primary" @click="showCreate = true">创建考试</el-button>
+      <el-button v-if="canCreateExam" type="primary" @click="showCreate = true">创建考试</el-button>
     </div>
 
     <el-empty v-if="!classes.length" description="你还没有加入任何班级" />
@@ -130,6 +132,13 @@ onMounted(load)
 <style scoped>
 .exam-list-page { padding: 24px; max-width: 1000px; margin: 0 auto; }
 .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-.class-block { margin-bottom: 24px; }
-.class-block h3 { margin: 0 0 10px; }
+.header h1 { font-size: 22px; margin: 0; color: #1f2937; }
+.class-block {
+  margin-bottom: 20px;
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+}
+.class-block h3 { margin: 0 0 12px; font-size: 16px; color: #1f2937; }
 </style>

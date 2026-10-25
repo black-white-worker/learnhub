@@ -8,7 +8,7 @@
         <span v-if="inviteCode" class="invite-code">邀请码：{{ inviteCode }}</span>
       </p>
 
-      <el-tabs v-model="tab">
+      <el-tabs v-model="tab" lazy>
         <el-tab-pane label="公告" name="notice">
           <NoticeTab :class-id="classId" :is-teacher="isTeacher" />
         </el-tab-pane>

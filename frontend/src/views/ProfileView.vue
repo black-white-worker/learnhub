@@ -1,19 +1,34 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useRouter } from 'vue-router'
 import axios from 'axios'
 
+const router = useRouter()
 const profile = ref({ username: '', nickname: '', role: '' })
 const applying = ref(false)
 const applied = ref(false)
 
+// 消息通知（问题3）
+const notifications = ref([])
+const unreadCount = ref(0)
+
 async function load() {
   const token = localStorage.getItem('token')
+  const auth = { headers: { Authorization: 'Bearer ' + token } }
   try {
-    const r = await axios.get('/api/user/info', { headers: { Authorization: 'Bearer ' + token } })
+    const r = await axios.get('/api/user/info', auth)
     profile.value = r.data || {}
   } catch (e) {
     ElMessage.error('加载用户信息失败')
+  }
+  // 加载消息
+  try {
+    const n = await axios.get('/api/notifications', auth)
+    notifications.value = n.data?.list || []
+    unreadCount.value = n.data?.unread || 0
+  } catch (e) {
+    notifications.value = []
   }
 }
 
@@ -29,6 +44,31 @@ async function applyTeacher() {
   } finally {
     applying.value = false
   }
+}
+
+// 点击消息：跳转到对应页面并标记已读
+async function openNotification(n) {
+  const token = localStorage.getItem('token')
+  if (!n.isRead) {
+    try {
+      await axios.post(`/api/notifications/${n.id}/read`, {}, { headers: { Authorization: 'Bearer ' + token } })
+      n.isRead = true
+      unreadCount.value = Math.max(0, unreadCount.value - 1)
+    } catch (e) {}
+  }
+  if (n.linkUrl) {
+    router.push(n.linkUrl)
+  }
+}
+
+async function markAllRead() {
+  const token = localStorage.getItem('token')
+  try {
+    await axios.post('/api/notifications/read-all', {}, { headers: { Authorization: 'Bearer ' + token } })
+    notifications.value.forEach(n => n.isRead = true)
+    unreadCount.value = 0
+    ElMessage.success('已全部标为已读')
+  } catch (e) {}
 }
 
 onMounted(load)
@@ -57,11 +97,53 @@ onMounted(load)
         <el-alert v-else type="success" :closable="false" title="申请已提交，请等待管理员审批" />
       </div>
     </el-card>
+
+    <!-- 消息中心（问题3：审批结果 + 班级动态提醒） -->
+    <el-card class="notify-card">
+      <template #header>
+        <div class="notify-head">
+          <b>消息中心</b>
+          <el-badge v-if="unreadCount > 0" :value="unreadCount" type="danger">
+            <el-button size="small" text @click="markAllRead">全部已读</el-button>
+          </el-badge>
+          <span v-else class="all-read">暂无未读消息</span>
+        </div>
+      </template>
+      <el-empty v-if="!notifications.length" description="暂无消息" :image-size="60" />
+      <div v-else class="notify-list">
+        <div
+          v-for="n in notifications"
+          :key="n.id"
+          class="notify-item"
+          :class="{ unread: !n.isRead }"
+          @click="openNotification(n)"
+        >
+          <el-badge is-dot :hidden="n.isRead" />
+          <div class="notify-body">
+            <b>{{ n.title }}</b>
+            <p>{{ n.content }}</p>
+            <small>{{ n.createdAt }}</small>
+          </div>
+        </div>
+      </div>
+    </el-card>
   </div>
 </template>
 
 <style scoped>
 .profile-page { padding: 24px; max-width: 640px; margin: 0 auto; }
-.profile-card { padding: 12px; }
+.profile-card { padding: 12px; margin-bottom: 16px; }
 .apply-box { margin-top: 16px; }
+.notify-card { padding: 12px; }
+.notify-head { display: flex; justify-content: space-between; align-items: center; }
+.all-read { color: #9ca3af; font-size: 13px; }
+.notify-list { display: flex; flex-direction: column; gap: 8px; }
+.notify-item {
+  display: flex; gap: 8px; padding: 10px; border-radius: 8px; cursor: pointer;
+}
+.notify-item:hover { background: #f5f7fa; }
+.notify-item.unread { background: #eff6ff; }
+.notify-body b { font-size: 14px; color: #1f2937; }
+.notify-body p { margin: 4px 0; font-size: 13px; color: #6b7280; }
+.notify-body small { color: #9ca3af; font-size: 12px; }
 </style>

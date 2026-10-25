@@ -3,6 +3,7 @@ package logic
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"learningplatform/internal/model"
 	"learningplatform/internal/app/class"
@@ -29,6 +30,13 @@ func (l *CreateAnnouncementLogic) CreateAnnouncement(classId int64, req *class.C
 	if err != nil {
 		return nil, err
 	}
+	// 问题3：发布公告时给班级其他成员广播通知
+	_ = l.svcCtx.ClassStore.BroadcastNotification(
+		classId, cu.Id, "announcement",
+		"新公告："+req.Title,
+		req.Content,
+		"/class/"+strconv.FormatInt(classId, 10),
+	)
 	class.LogOperation(l.svcCtx, ip, cu.Id, cu.Username, "publish_notice", fmt.Sprintf("class:%d", classId), req.Title)
 	return &class.CreateAnnouncementResp{Id: id}, nil
 }
