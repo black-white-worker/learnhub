@@ -21,6 +21,8 @@ type ServiceContext struct {
 	CourseStore *model.CourseModel
 	// 班级模块数据访问层
 	ClassStore *model.ClassModel
+	// 考试中心数据访问层
+	ExamStore *model.ExamModel
 	// Redis 缓存客户端，登录成功后把 token 写入 Redis
 	Redis *redis.Redis
 	// DB 暴露底层 sqlx 连接，供轻量表（操作日志等）直接读写
@@ -34,6 +36,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		UserStore:   model.NewUserModel(conn),
 		CourseStore: model.NewCourseModel(conn),
 		ClassStore:  model.NewClassModel(conn),
+		ExamStore:    model.NewExamModel(conn),
 		Redis:       redis.MustNewRedis(c.Redis),
 		DB:          conn,
 	}

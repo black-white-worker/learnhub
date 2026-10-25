@@ -25,7 +25,7 @@ import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'
 
-defineProps({
+const props = defineProps({
   classId: { type: [String, Number], required: true },
   isTeacher: { type: Boolean, default: false },
 })
@@ -41,21 +41,31 @@ async function loadSignin() {
   try {
     const r = await axios.get(`/api/class/${props.classId}/signin`, auth)
     activeSignin.value = r.data || null
-    if (activeSignin.value) {
-      const rec = await axios.get(`/api/class/${props.classId}/signin/records`, auth)
-      signinRecords.value = rec.data || []
+    // 签名单接口要求老师权限，学生端不调，避免 403 报错
+    if (activeSignin.value && props.isTeacher) {
+      try {
+        const rec = await axios.get(`/api/class/${props.classId}/signin/records`, auth)
+        signinRecords.value = rec.data || []
+      } catch (e) {
+        signinRecords.value = []
+      }
     } else {
       signinRecords.value = []
     }
   } catch (e) {
     activeSignin.value = null
+    signinRecords.value = []
   }
 }
 
 async function startSignin() {
-  await axios.post(`/api/class/${props.classId}/signin/start`, {}, auth)
-  ElMessage.success('签到已发起')
-  loadSignin()
+  try {
+    await axios.post(`/api/class/${props.classId}/signin/start`, {}, auth)
+    ElMessage.success('签到已发起')
+    loadSignin()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.message || '发起签到失败')
+  }
 }
 
 async function doSignin() {

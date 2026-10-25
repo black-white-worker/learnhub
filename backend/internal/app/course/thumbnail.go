@@ -19,7 +19,7 @@ const (
 //  2. 居中裁剪，把超出目标尺寸的边缘裁掉，保证正好是 320x180。
 //
 // 好处：所有课程的封面缩略图尺寸一致，前端列表布局不会因为图片比例不同而错位。
-func generateThumbnail(src []byte, width, height int) ([]byte, error) {
+func GenerateThumbnail(src []byte, width, height int) ([]byte, error) {
 	// 1. 解码图片（支持 JPEG/PNG/GIF；非图片或损坏文件直接解码失败）
 	img, err := imaging.Decode(bytes.NewReader(src), imaging.AutoOrientation(true))
 	if err != nil {

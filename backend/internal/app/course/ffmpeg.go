@@ -77,14 +77,14 @@ func runFfmpeg(ctx context.Context, args []string) error {
 // 返回 faststart 版本的新 MinIO URL。任何一步失败都返回 error，调用方应忽略、
 // 继续用原始 URL 播放（MinIO 本身支持 range 请求，浏览器多数仍能拖动）。
 //
-// video.objectName 为源对象在桶内的路径。
+// video.ObjectName 为源对象在桶内的路径。
 func ProcessVideoFaststart(ctx context.Context, svcCtx *svc.ServiceContext, video *Video) (string, error) {
-	if svcCtx.Oss == nil || video == nil || video.objectName == "" {
+	if svcCtx.Oss == nil || video == nil || video.ObjectName == "" {
 		return "", errors.New("缺少对象存储或源对象名")
 	}
 
 	// 1. 下载源视频到临时文件
-	rc, err := svcCtx.Oss.Download(ctx, video.objectName)
+	rc, err := svcCtx.Oss.Download(ctx, video.ObjectName)
 	if err != nil {
 		return "", err
 	}
@@ -96,7 +96,7 @@ func ProcessVideoFaststart(ctx context.Context, svcCtx *svc.ServiceContext, vide
 	}
 	defer os.RemoveAll(tmpDir)
 
-	srcPath := filepath.Join(tmpDir, "source"+filepath.Ext(video.objectName))
+	srcPath := filepath.Join(tmpDir, "source"+filepath.Ext(video.ObjectName))
 	dstPath := filepath.Join(tmpDir, "faststart.mp4")
 
 	f, err := os.Create(srcPath)
@@ -117,7 +117,7 @@ func ProcessVideoFaststart(ctx context.Context, svcCtx *svc.ServiceContext, vide
 	}
 
 	// 3. 上传 faststart 版本回 MinIO（新对象，不动原文件）
-	dstObject := fmt.Sprintf("course/%d/videos/faststart/%s.mp4", video.courseId, uuid.NewString())
+	dstObject := fmt.Sprintf("course/%d/videos/faststart/%s.mp4", video.CourseId, uuid.NewString())
 	out, err := os.Open(dstPath)
 	if err != nil {
 		return "", err

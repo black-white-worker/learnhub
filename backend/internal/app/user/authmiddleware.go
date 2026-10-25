@@ -12,10 +12,10 @@ import (
 	"github.com/zeromicro/go-zero/rest/httpx"
 )
 
-// sessionKeyPrefix Redis 中登录会话的 key 前缀。
-// 完整 key = sessionKeyPrefix + token，value 是 SessionUser 的 JSON。
+// SessionKeyPrefix Redis 中登录会话的 key 前缀。
+// 完整 key = SessionKeyPrefix + token，value 是 SessionUser 的 JSON。
 // 登出时按 key 删除即可，不用等 TTL 过期，这就是"Redis 会话方案"的核心。
-const sessionKeyPrefix = "login:token:"
+const SessionKeyPrefix = "login:token:"
 
 // AuthMiddleware 登录鉴权中间件（主流 Redis 会话方案的标准做法）：
 // 1. 从请求头 Authorization: Bearer {token} 取出 token
@@ -43,7 +43,7 @@ func (m *AuthMiddleware) Handle(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		// 2. 到 Redis 查会话（未登录 / 已登出 / 过期都查不到）
-		val, err := m.svcCtx.Redis.Get(sessionKeyPrefix + token)
+		val, err := m.svcCtx.Redis.Get(SessionKeyPrefix + token)
 		if err != nil || val == "" {
 			writeUnauthorized(w, r)
 			return
@@ -55,8 +55,8 @@ func (m *AuthMiddleware) Handle(next http.HandlerFunc) http.HandlerFunc {
 			writeUnauthorized(w, r)
 			return
 		}
-		ctx := context.WithValue(r.Context(), authTokenKey, token)
-		ctx = context.WithValue(ctx, authSessionKey, session)
+		ctx := context.WithValue(r.Context(), AuthTokenKey, token)
+		ctx = context.WithValue(ctx, AuthSessionKey, session)
 		next(w, r.WithContext(ctx))
 	}
 }

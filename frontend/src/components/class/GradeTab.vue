@@ -14,7 +14,7 @@
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
 
-defineProps({
+const props = defineProps({
   classId: { type: [String, Number], required: true },
 })
 

@@ -1,9 +1,10 @@
 package handler
 
 import (
-	"learningplatform/internal/app/class"
-	"learningplatform/internal/app/course"
-	"learningplatform/internal/app/user"
+	classhandler "learningplatform/internal/app/class/handler"
+	coursehandler "learningplatform/internal/app/course/handler"
+	examhandler "learningplatform/internal/app/exam/handler"
+	userhandler "learningplatform/internal/app/user/handler"
 	"learningplatform/internal/svc"
 
 	"github.com/zeromicro/go-zero/rest"
@@ -16,8 +17,9 @@ import (
 // 两边都加了 course.RegisterRoutes(server, serverCtx) 这一行，
 // 合并时只保留一行即可，别重复。
 func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
-	user.RegisterRoutes(server, serverCtx)
-	course.RegisterRoutes(server, serverCtx)
-	class.RegisterRoutes(server, serverCtx)
+	userhandler.RegisterRoutes(server, serverCtx)
+	coursehandler.RegisterRoutes(server, serverCtx)
+	classhandler.RegisterRoutes(server, serverCtx)
+	examhandler.RegisterRoutes(server, serverCtx)
 	// 未来：ai.RegisterRoutes(server, serverCtx)
 }

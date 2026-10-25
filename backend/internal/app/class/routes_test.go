@@ -18,7 +18,7 @@ import (
 func TestRand6Code_Format(t *testing.T) {
 	seen := map[string]struct{}{}
 	for i := 0; i < 200; i++ {
-		c := rand6Code()
+		c := Rand6Code()
 		if len(c) != 6 {
 			t.Fatalf("rand6Code 长度应为 6，实际 %d: %s", len(c), c)
 		}
@@ -41,7 +41,7 @@ func TestRand6Code_Format(t *testing.T) {
 func TestParseIntPath_Fallback(t *testing.T) {
 	u, _ := url.Parse("http://localhost/api/class/42/announcements")
 	req := &http.Request{URL: u}
-	if got := parseIntPath(req, "id"); got != 42 {
+	if got := ParseIntPath(req, "id"); got != 42 {
 		t.Fatalf("期望解析出 42，实际 %d", got)
 	}
 }
@@ -50,7 +50,7 @@ func TestParseIntPath_Fallback(t *testing.T) {
 func TestParseIntPath_NoNumber(t *testing.T) {
 	u, _ := url.Parse("http://localhost/api/class/announcements")
 	req := &http.Request{URL: u}
-	if got := parseIntPath(req, "id"); got != 0 {
+	if got := ParseIntPath(req, "id"); got != 0 {
 		t.Fatalf("无数字段应返回 0，实际 %d", got)
 	}
 }
@@ -69,7 +69,7 @@ func TestGradeAutoAnswers_AllCorrect(t *testing.T) {
 		newQ(3, 10, "true"),
 	}
 	ans := map[string]string{"1": "A", "2": "B", "3": "true"}
-	if got := gradeAutoAnswers(qs, ans); got != 20 {
+	if got := GradeAutoAnswers(qs, ans); got != 20 {
 		t.Fatalf("全对应得 20，实际 %d", got)
 	}
 }
@@ -83,7 +83,7 @@ func TestGradeAutoAnswers_WrongOrMissing(t *testing.T) {
 	}
 	// 第1题对，第2题错，第3题没答
 	ans := map[string]string{"1": "A", "2": "D"}
-	if got := gradeAutoAnswers(qs, ans); got != 5 {
+	if got := GradeAutoAnswers(qs, ans); got != 5 {
 		t.Fatalf("只对第1题应得 5，实际 %d", got)
 	}
 }
@@ -92,7 +92,7 @@ func TestGradeAutoAnswers_WrongOrMissing(t *testing.T) {
 func TestGradeAutoAnswers_CaseInsensitive(t *testing.T) {
 	qs := []*model.QuestionRow{newQ(1, 5, "A")}
 	ans := map[string]string{"1": "a"}
-	if got := gradeAutoAnswers(qs, ans); got != 5 {
+	if got := GradeAutoAnswers(qs, ans); got != 5 {
 		t.Fatalf("大小写不敏感应得 5，实际 %d", got)
 	}
 }
@@ -100,7 +100,7 @@ func TestGradeAutoAnswers_CaseInsensitive(t *testing.T) {
 // 用例：空答案 map → 0 分，不 panic
 func TestGradeAutoAnswers_Empty(t *testing.T) {
 	qs := []*model.QuestionRow{newQ(1, 5, "A")}
-	if got := gradeAutoAnswers(qs, map[string]string{}); got != 0 {
+	if got := GradeAutoAnswers(qs, map[string]string{}); got != 0 {
 		t.Fatalf("空答案应得 0，实际 %d", got)
 	}
 }
@@ -109,35 +109,35 @@ func TestGradeAutoAnswers_Empty(t *testing.T) {
 
 // 用例：全空 → 报错
 func TestValidateSubmission_AllEmpty(t *testing.T) {
-	if err := validateSubmissionInput("", "", nil); err == nil {
+	if err := ValidateSubmissionInput("", "", nil); err == nil {
 		t.Fatal("全空应报错")
 	}
 }
 
 // 用例：纯空格也算空
 func TestValidateSubmission_WhitespaceOnly(t *testing.T) {
-	if err := validateSubmissionInput("   \n  ", "", map[string]string{}); err == nil {
+	if err := ValidateSubmissionInput("   \n  ", "", map[string]string{}); err == nil {
 		t.Fatal("纯空白文本应报错")
 	}
 }
 
 // 用例：只填文本 → 通过
 func TestValidateSubmission_TextOnly(t *testing.T) {
-	if err := validateSubmissionInput("这是我的作业", "", nil); err != nil {
+	if err := ValidateSubmissionInput("这是我的作业", "", nil); err != nil {
 		t.Fatalf("只填文本应通过，实际报错: %v", err)
 	}
 }
 
 // 用例：只传附件 → 通过
 func TestValidateSubmission_FileOnly(t *testing.T) {
-	if err := validateSubmissionInput("", "http://minio/assignment/x.pdf", nil); err != nil {
+	if err := ValidateSubmissionInput("", "http://minio/assignment/x.pdf", nil); err != nil {
 		t.Fatalf("只传附件应通过，实际报错: %v", err)
 	}
 }
 
 // 用例：只答客观题 → 通过
 func TestValidateSubmission_AnswersOnly(t *testing.T) {
-	if err := validateSubmissionInput("", "", map[string]string{"1": "A"}); err != nil {
+	if err := ValidateSubmissionInput("", "", map[string]string{"1": "A"}); err != nil {
 		t.Fatalf("只答客观题应通过，实际报错: %v", err)
 	}
 }

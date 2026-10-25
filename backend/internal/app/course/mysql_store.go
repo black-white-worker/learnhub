@@ -17,7 +17,7 @@ type mysqlStore struct {
 // InitCourseStore 把包级 store 从内存实现切换为 MySQL 实现（生产启动时调一次）。
 func InitCourseStore(db *model.CourseModel) {
 	if db != nil {
-		store = &mysqlStore{db: db}
+		Store = &mysqlStore{db: db}
 	}
 }
 
@@ -30,8 +30,8 @@ func videoFromRow(r *model.VideoRow) *Video {
 		Size:       r.Size,
 		UploadedAt: r.UploadedAt.Format(time.RFC3339),
 		Faststarted: r.Faststarted,
-		courseId:   int(r.CourseId),
-		objectName: r.ObjectName,
+		CourseId:   int(r.CourseId),
+		ObjectName: r.ObjectName,
 	}
 }
 
@@ -112,7 +112,7 @@ func (m *mysqlStore) AddVideos(id int, videos []*Video) error {
 	rows := make([]*model.VideoRow, 0, len(videos))
 	for _, v := range videos {
 		rows = append(rows, &model.VideoRow{
-			Name: v.Name, Url: v.Url, ObjectName: v.objectName, Size: v.Size,
+			Name: v.Name, Url: v.Url, ObjectName: v.ObjectName, Size: v.Size,
 			Faststarted: v.Faststarted,
 		})
 	}

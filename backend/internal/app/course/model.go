@@ -42,14 +42,14 @@ type Video struct {
 	// 以下为「课程观看」分支新增
 	Faststarted bool `json:"faststarted"` // 是否已生成 moov 前置（+faststart）版本
 
-	courseId   int    // 所属课程 id（内部用，不序列化）
-	objectName string // 源视频在 MinIO 内的对象路径（内部用，不序列化）
+	CourseId    int    // 所属课程 id（内部用，不序列化）
+	ObjectName  string // 源视频在 MinIO 内的对象路径（内部用，不序列化）
 }
 
-// courseStore 课程存储接口：
+// CourseStore 课程存储接口：
 // 内存实现（memoryStore，测试用）和 MySQL 实现（mysqlStore，生产用）都满足它。
 // logic 层只依赖这个接口，不关心数据到底在内存还是数据库。
-type courseStore interface {
+type CourseStore interface {
 	AddCourse(name, intro, teacher, createdBy string) (*Course, error)
 	GetCourse(id int) (*Course, error)
 	SetCover(id int, coverUrl, coverThumbUrl string) error
@@ -74,7 +74,7 @@ type memoryStore struct {
 
 // store 课程存储包级单例。默认是内存实现；
 // 生产启动时由 svc 调 InitCourseStore 换成 MySQL 实现。
-var store courseStore = newMemoryStore()
+var Store CourseStore = newMemoryStore()
 
 // newMemoryStore 创建内存课程存储并预置两条示例课程。
 func newMemoryStore() *memoryStore {

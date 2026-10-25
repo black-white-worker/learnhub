@@ -64,21 +64,24 @@ async function load() {
     const r = await axios.get(`/api/class/${classId}`, auth)
     detail.value = r.data
     inviteCode.value = r.data.inviteCode || ''
-    // 查当前用户在班角色
-    const me = localStorage.getItem('username')
-    const myMember = r.data.members.find(m => m.username === me)
-    detail.value.myRole = myMember ? myMember.role : ''
+    // myRole 由后端 RequireClassMember 直接返回（teacher/student/admin），
+    // 不再前端自己去 members 里 find（admin 不在 members 表里会误判成学生）。
+    detail.value.myRole = r.data.myRole || ''
   } catch (e) {
-    ElMessage.error('加载失败')
+    ElMessage.error('加载失败：' + (e.response?.data?.message || e.message))
   } finally {
     loading.value = false
   }
 }
 
 async function genInvite() {
-  const r = await axios.post(`/api/class/${classId}/invite`, {}, auth)
-  inviteCode.value = r.data.code
-  ElMessage.success('邀请码：' + r.data.code)
+  try {
+    const r = await axios.post(`/api/class/${classId}/invite`, {}, auth)
+    inviteCode.value = r.data.code
+    ElMessage.success('邀请码：' + r.data.code)
+  } catch (e) {
+    ElMessage.error(e.response?.data?.message || '生成邀请码失败')
+  }
 }
 
 onMounted(load)

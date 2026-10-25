@@ -32,7 +32,7 @@ const menus = [
     ],
   },
   { label: '班级中心', icon: User, path: '/classes' },
-  { label: '考试中心', icon: EditPen, path: '' },
+  { label: '考试中心', icon: EditPen, path: '/exams' },
   { label: '资料库', icon: Collection, path: '' },
 ]
 const activeMenu = ref('/')
@@ -59,6 +59,14 @@ function onMenuCommand(path) {
 
 function goLogin() {
   router.push('/login')
+}
+
+function onUserCommand(cmd) {
+  if (cmd === 'profile') {
+    router.push('/profile')
+  } else if (cmd === 'logout') {
+    logout()
+  }
 }
 
 function logout() {
@@ -115,9 +123,18 @@ function logout() {
         </nav>
         <div class="user-area">
           <template v-if="username">
-            <el-avatar :size="32" class="avatar">{{ username.charAt(0).toUpperCase() }}</el-avatar>
-            <span class="username">{{ username }}</span>
-            <el-button link type="primary" @click="logout">退出登录</el-button>
+            <el-dropdown trigger="click" @command="onUserCommand">
+              <div class="user-trigger">
+                <el-avatar :size="32" class="avatar">{{ username.charAt(0).toUpperCase() }}</el-avatar>
+                <span class="username">{{ username }}</span>
+              </div>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="profile">个人主页</el-dropdown-item>
+                  <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </template>
           <template v-else>
             <el-button type="primary" @click="goLogin">登录</el-button>
@@ -219,6 +236,18 @@ function logout() {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.user-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 8px;
+}
+.user-trigger:hover {
+  background: #f3f4f6;
 }
 
 .avatar {

@@ -15,24 +15,24 @@ const (
 	defaultMaxVideoBytes = 500 << 20 // 单个视频 500MB
 )
 
-// effectiveMaxCoverBytes 取配置的封面上限；配置为 0（未设置）时用默认值。
-func effectiveMaxCoverBytes(svcCtx *svc.ServiceContext) int64 {
+// EffectiveMaxCoverBytes 取配置的封面上限；配置为 0（未设置）时用默认值。
+func EffectiveMaxCoverBytes(svcCtx *svc.ServiceContext) int64 {
 	if svcCtx.Config.Upload.MaxCoverBytes > 0 {
 		return svcCtx.Config.Upload.MaxCoverBytes
 	}
 	return defaultMaxCoverBytes
 }
 
-// effectiveMaxVideoBytes 取配置的单个视频上限；配置为 0（未设置）时用默认值。
-func effectiveMaxVideoBytes(svcCtx *svc.ServiceContext) int64 {
+// EffectiveMaxVideoBytes 取配置的单个视频上限；配置为 0（未设置）时用默认值。
+func EffectiveMaxVideoBytes(svcCtx *svc.ServiceContext) int64 {
 	if svcCtx.Config.Upload.MaxVideoBytes > 0 {
 		return svcCtx.Config.Upload.MaxVideoBytes
 	}
 	return defaultMaxVideoBytes
 }
 
-// 允许上传的图片扩展名（与 checkImageMagic 支持的格式保持一致）
-var allowedImageExt = map[string]struct{}{
+// 允许上传的图片扩展名（与 CheckImageMagic 支持的格式保持一致）
+var AllowedImageExt = map[string]struct{}{
 	".jpg":  {},
 	".jpeg": {},
 	".png":  {},
@@ -40,7 +40,7 @@ var allowedImageExt = map[string]struct{}{
 }
 
 // 允许上传的视频扩展名
-var allowedVideoExt = map[string]struct{}{
+var AllowedVideoExt = map[string]struct{}{
 	".mp4":  {},
 	".mov":  {},
 	".webm": {},
@@ -48,21 +48,21 @@ var allowedVideoExt = map[string]struct{}{
 	".mkv":  {},
 }
 
-// isAllowedImage 判断扩展名是否在图片白名单内
-func isAllowedImage(ext string) bool {
-	_, ok := allowedImageExt[strings.ToLower(ext)]
+// IsAllowedImage 判断扩展名是否在图片白名单内
+func IsAllowedImage(ext string) bool {
+	_, ok := AllowedImageExt[strings.ToLower(ext)]
 	return ok
 }
 
-// isAllowedVideo 判断扩展名是否在视频白名单内
-func isAllowedVideo(ext string) bool {
-	_, ok := allowedVideoExt[strings.ToLower(ext)]
+// IsAllowedVideo 判断扩展名是否在视频白名单内
+func IsAllowedVideo(ext string) bool {
+	_, ok := AllowedVideoExt[strings.ToLower(ext)]
 	return ok
 }
 
-// checkImageMagic 校验图片文件魔数（文件头签名），
+// CheckImageMagic 校验图片文件魔数（文件头签名），
 // 防止"改扩展名伪装图片"或上传非图片文件。支持 JPEG / PNG / GIF。
-func checkImageMagic(b []byte) bool {
+func CheckImageMagic(b []byte) bool {
 	if len(b) < 12 {
 		return false
 	}
@@ -81,9 +81,9 @@ func checkImageMagic(b []byte) bool {
 	return false
 }
 
-// checkVideoMagic 校验视频文件魔数（文件头签名）。
+// CheckVideoMagic 校验视频文件魔数（文件头签名）。
 // 支持 MP4/MOV（ftyp）、WebM/MKV（EBML）、AVI（RIFF...AVI）。
-func checkVideoMagic(b []byte) bool {
+func CheckVideoMagic(b []byte) bool {
 	if len(b) < 12 {
 		return false
 	}
@@ -102,8 +102,8 @@ func checkVideoMagic(b []byte) bool {
 	return false
 }
 
-// contentTypeByExt 根据扩展名返回 MIME 类型（写进 MinIO 对象的 Content-Type）。
-func contentTypeByExt(ext string) string {
+// ContentTypeByExt 根据扩展名返回 MIME 类型（写进 MinIO 对象的 Content-Type）。
+func ContentTypeByExt(ext string) string {
 	switch strings.ToLower(ext) {
 	case ".jpg", ".jpeg":
 		return "image/jpeg"

@@ -54,7 +54,7 @@ func sweepOrphans(svcCtx *svc.ServiceContext) error {
 
 	// 1. 收集当前所有被课程引用的对象名（封面原图 / 封面缩略图 / 视频）
 	referenced := make(map[string]struct{})
-	for _, c := range store.List() {
+	for _, c := range Store.List() {
 		collectReferenced(referenced, c.CoverUrl, svcCtx.Config.Minio.Bucket)
 		collectReferenced(referenced, c.CoverThumbUrl, svcCtx.Config.Minio.Bucket)
 		for _, v := range c.Videos {

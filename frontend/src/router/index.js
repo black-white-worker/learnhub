@@ -67,6 +67,21 @@ const router = createRouter({
       name: 'class-detail',
       component: () => import('../views/ClassDetailView.vue'),
     },
+    {
+      path: '/profile',
+      name: 'profile',
+      component: () => import('../views/ProfileView.vue'),
+    },
+    {
+      path: '/exams',
+      name: 'exams',
+      component: () => import('../views/ExamListView.vue'),
+    },
+    {
+      path: '/exam/:id',
+      name: 'exam-detail',
+      component: () => import('../views/ExamDetailView.vue'),
+    },
   ],
 })
 

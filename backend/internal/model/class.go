@@ -305,10 +305,36 @@ type SubmissionRow struct {
 	AssignmentId int64         `db:"assignment_id"`
 	UserId       int64         `db:"user_id" json:"userId"`
 	Content      string        `db:"content" json:"content"`
-	FileUrl      string        `db:"file_url" json:"fileUrl"`
-	Score        sql.NullInt64 `db:"score" json:"score"`
-	Comment      string        `db:"comment" json:"comment"`
-	SubmittedAt  time.Time     `db:"submitted_at" json:"submittedAt"`
+	// Answers 客观题作答 JSON，V11 加列。学生提交时由 logic 层写入。
+	Answers    string        `db:"answers" json:"answers"`
+	FileUrl    string        `db:"file_url" json:"fileUrl"`
+	Score      sql.NullInt64 `db:"score" json:"-"` // 老师手打分，MarshalJSON 输出数字或 null
+	AutoScore  sql.NullInt64 `db:"auto_score" json:"-"` // 客观题自动判分，MarshalJSON 输出数字或 null
+	Comment    string        `db:"comment" json:"comment"`
+	SubmittedAt time.Time     `db:"submitted_at" json:"submittedAt"`
+}
+
+// MarshalJSON 自定义：把 Score/AutoScore 两个 sql.NullInt64 输出成数字或 null，
+// 避免默认序列化成 {"Int":10,"Valid":true} 这种内部结构让前端拿不到数字。
+func (s *SubmissionRow) MarshalJSON() ([]byte, error) {
+	type Alias SubmissionRow
+	return json.Marshal(&struct {
+		Score     *int `json:"score"`
+		AutoScore *int `json:"autoScore"`
+		*Alias
+	}{
+		Score:     nullIntToPtr(s.Score),
+		AutoScore: nullIntToPtr(s.AutoScore),
+		Alias:     (*Alias)(s),
+	})
+}
+
+func nullIntToPtr(n sql.NullInt64) *int {
+	if !n.Valid {
+		return nil
+	}
+	v := int(n.Int64)
+	return &v
 }
 
 func (m *ClassModel) UpsertSubmission(s *SubmissionRow) error {
@@ -330,7 +356,7 @@ func (m *ClassModel) GradeSubmission(submissionId int64, score int, comment stri
 func (m *ClassModel) GetSubmission(submissionId int64) (*SubmissionRow, error) {
 	var s SubmissionRow
 	err := m.conn.QueryRowCtx(context.Background(), &s,
-		"SELECT id, assignment_id, user_id, content, file_url, score, comment, submitted_at FROM assignment_submissions WHERE id=?",
+		"SELECT id, assignment_id, user_id, content, answers, file_url, score, auto_score, comment, submitted_at FROM assignment_submissions WHERE id=?",
 		submissionId)
 	if err != nil {
 		return nil, err
@@ -341,14 +367,14 @@ func (m *ClassModel) GetSubmission(submissionId int64) (*SubmissionRow, error) {
 func (m *ClassModel) ListSubmissions(assignmentId int64) ([]*SubmissionRow, error) {
 	var rows []*SubmissionRow
 	err := m.conn.QueryRowsCtx(context.Background(), &rows,
-		"SELECT id, assignment_id, user_id, content, file_url, score, comment, submitted_at FROM assignment_submissions WHERE assignment_id=? ORDER BY submitted_at DESC", assignmentId)
+		"SELECT id, assignment_id, user_id, content, answers, file_url, score, auto_score, comment, submitted_at FROM assignment_submissions WHERE assignment_id=? ORDER BY submitted_at DESC", assignmentId)
 	return rows, err
 }
 
 func (m *ClassModel) GetMySubmission(assignmentId, userId int64) (*SubmissionRow, error) {
 	var s SubmissionRow
 	err := m.conn.QueryRowCtx(context.Background(), &s,
-		"SELECT id, assignment_id, user_id, content, file_url, score, comment, submitted_at FROM assignment_submissions WHERE assignment_id=? AND user_id=?",
+		"SELECT id, assignment_id, user_id, content, answers, file_url, score, auto_score, comment, submitted_at FROM assignment_submissions WHERE assignment_id=? AND user_id=?",
 		assignmentId, userId)
 	if err != nil {
 		return nil, err
@@ -415,6 +441,7 @@ type ReplyRow struct {
 	Id           int64     `db:"id" json:"id"`
 	DiscussionId int64     `db:"discussion_id"`
 	UserId       int64     `db:"user_id" json:"userId"`
+	Username     string    `db:"username" json:"username"`
 	Content      string    `db:"content" json:"content"`
 	CreatedAt    time.Time `db:"created_at" json:"createdAt"`
 }
@@ -435,7 +462,9 @@ func (m *ClassModel) InsertReply(r *ReplyRow) (int64, error) {
 func (m *ClassModel) ListReplies(discussionId int64) ([]*ReplyRow, error) {
 	var rows []*ReplyRow
 	err := m.conn.QueryRowsCtx(context.Background(), &rows,
-		"SELECT id, discussion_id, user_id, content, created_at FROM discussion_replies WHERE discussion_id=? ORDER BY created_at", discussionId)
+		`SELECT r.id, r.discussion_id, r.user_id, u.username, r.content, r.created_at
+		 FROM discussion_replies r JOIN users u ON r.user_id=u.id
+		 WHERE r.discussion_id=? ORDER BY r.created_at`, discussionId)
 	return rows, err
 }
 

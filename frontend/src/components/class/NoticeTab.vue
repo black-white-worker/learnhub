@@ -39,9 +39,18 @@ async function loadNotices() {
 }
 
 async function postNotice() {
-  await axios.post(`/api/class/${props.classId}/announcement`, newNotice.value, auth)
-  newNotice.value = { title: '', content: '' }
-  loadNotices()
+  if (!newNotice.value.title.trim() || !newNotice.value.content.trim()) {
+    ElMessage.warning('标题和内容都不能为空')
+    return
+  }
+  try {
+    await axios.post(`/api/class/${props.classId}/announcement`, newNotice.value, auth)
+    newNotice.value = { title: '', content: '' }
+    ElMessage.success('发布成功')
+    loadNotices()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.message || '发布失败')
+  }
 }
 
 // 打开公告：未读则调接口标记已读，本地立刻把红点去掉

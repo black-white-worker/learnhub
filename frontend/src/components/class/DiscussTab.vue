@@ -14,7 +14,9 @@
     <el-dialog v-model="discussDialog" :title="currentDiscussion?.title" width="600px">
       <p>{{ currentDiscussion?.content }}</p>
       <el-divider />
-      <div v-for="r in replies" :key="r.id" class="reply">{{ r.content }}</div>
+      <div v-for="r in replies" :key="r.id" class="reply">
+        <b>{{ r.username }}：</b>{{ r.content }}
+      </div>
       <el-input v-model="replyText" placeholder="回复" style="margin-top:10px" />
       <el-button type="primary" style="margin-top:10px" @click="doReply">回复</el-button>
     </el-dialog>
@@ -23,9 +25,10 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
 import axios from 'axios'
 
-defineProps({
+const props = defineProps({
   classId: { type: [String, Number], required: true },
   isMember: { type: Boolean, default: false },
 })
@@ -47,9 +50,18 @@ async function loadDiscuss() {
 }
 
 async function postDiscussion() {
-  await axios.post(`/api/class/${props.classId}/discussion`, newPost.value, auth)
-  newPost.value = { title: '', content: '' }
-  loadDiscuss()
+  if (!newPost.value.title.trim() || !newPost.value.content.trim()) {
+    ElMessage.warning('标题和内容都不能为空')
+    return
+  }
+  try {
+    await axios.post(`/api/class/${props.classId}/discussion`, newPost.value, auth)
+    newPost.value = { title: '', content: '' }
+    ElMessage.success('发帖成功')
+    loadDiscuss()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.message || '发帖失败')
+  }
 }
 
 async function openDiscussion(d) {
@@ -60,9 +72,15 @@ async function openDiscussion(d) {
 }
 
 async function doReply() {
-  await axios.post(`/api/discussion/${currentDiscussion.value.id}/reply`, { content: replyText.value }, auth)
-  replyText.value = ''
-  openDiscussion(currentDiscussion.value)
+  if (!replyText.value.trim()) return
+  try {
+    await axios.post(`/api/discussion/${currentDiscussion.value.id}/reply`, { content: replyText.value }, auth)
+    replyText.value = ''
+    ElMessage.success('回复成功')
+    openDiscussion(currentDiscussion.value)
+  } catch (e) {
+    ElMessage.error(e.response?.data?.message || '回复失败')
+  }
 }
 
 onMounted(loadDiscuss)
