@@ -1,6 +1,10 @@
 package course
 
-import "io"
+import (
+	"io"
+
+	"learningplatform/internal/oss"
+)
 
 // ===== 课程创建接口 POST /api/course/create =====
 
@@ -204,4 +208,51 @@ type DeleteResourceRequest struct {
 type DeleteResourceResponse struct {
 	CourseId   int `json:"courseId"`
 	ResourceId int `json:"resourceId"`
+}
+
+// ===== 分片直传上传（视频大文件，前端直传 MinIO，后端只签 URL）=====
+
+// InitMultipartRequest 开启分片上传。
+type InitMultipartRequest struct {
+	CourseId int    `json:"courseId"`
+	FileName string `json:"fileName"`
+	FileSize int64  `json:"fileSize"` // 字节，用于校验上限
+}
+
+// InitMultipartResponse 返回 uploadId + 最终 objectName + 推荐分片大小。
+type InitMultipartResponse struct {
+	UploadID    string `json:"uploadId"`
+	ObjectName  string `json:"objectName"`
+	ChunkSize   int64  `json:"chunkSize"`  // 推荐分片大小（5MB）
+	ExpireAt    string `json:"expireAt"`  // 会话过期时间（RFC3339）
+	MinPartSize int64  `json:"minPartSize"` // 除最后一片外，每片最小 5MB（MinIO 限制）
+}
+
+// SignPartRequest 给某一片签直传 URL。
+type SignPartRequest struct {
+	UploadID   string `json:"uploadId"`
+	PartNumber int    `json:"partNumber"` // 从 1 开始
+}
+
+// SignPartResponse 返回预签名 PUT URL，前端直接 PUT 分片字节到这个 URL。
+type SignPartResponse struct {
+	URL        string `json:"url"`
+	PartNumber int    `json:"partNumber"`
+}
+
+// CompleteMultipartRequest 合并分片。
+type CompleteMultipartRequest struct {
+	UploadID string               `json:"uploadId"`
+	Parts    []oss.MultipartPart `json:"parts"`
+}
+
+// CompleteMultipartResponse 合并成功，返回挂到课程下的视频元信息。
+type CompleteMultipartResponse struct {
+	CourseId int      `json:"courseId"`
+	Video    *Video   `json:"video"`
+}
+
+// AbortMultipartRequest 取消分片上传。
+type AbortMultipartRequest struct {
+	UploadID string `json:"uploadId"`
 }

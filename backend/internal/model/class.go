@@ -678,6 +678,14 @@ func (m *ClassModel) GetSigninByCode(code string) (*SigninRow, error) {
 	return &s, nil
 }
 
+// EndSignin 老师手动结束签到：把 expires_at 改成 now()，
+// 这样 GetActiveSignin 的 expires_at>NOW() 条件自然不命中，签到立即失效。
+func (m *ClassModel) EndSignin(id int64) error {
+	_, err := m.conn.ExecCtx(context.Background(),
+		"UPDATE class_signin SET expires_at=NOW() WHERE id=?", id)
+	return err
+}
+
 // AddSigninRecord 学生签到。
 // 利用 (signin_id, user_id) 唯一键 + INSERT IGNORE：
 // 返回 inserted=true 表示本次是第一次签到；

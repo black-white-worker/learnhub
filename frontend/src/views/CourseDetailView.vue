@@ -3,7 +3,7 @@ import { ref, reactive, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { VideoPlay } from '@element-plus/icons-vue'
-import { getCourseDetail, editCourse, deleteCourse } from '../api/index.js'
+import { getCourseDetail, editCourse, deleteCourse, uploadCourseVideos } from '../api/index.js'
 import CourseResourcePanel from '../components/CourseResourcePanel.vue'
 
 const route = useRoute()
@@ -119,6 +119,26 @@ function formatSize(bytes) {
   }
   return `${n.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
 }
+
+// 上传视频：el-upload 自定义 http-request，直接 FormData 调后端
+const uploading = ref(false)
+async function onUploadVideo(option) {
+  uploading.value = true
+  try {
+    const fd = new FormData()
+    fd.append('courseId', String(courseId.value))
+    fd.append('files', option.file)
+    await uploadCourseVideos(fd)
+    ElMessage.success('视频上传成功')
+    option.onSuccess?.(null)
+    loadDetail()
+  } catch (e) {
+    ElMessage.error('上传失败：' + (e.response?.data?.msg || e.message))
+    option.onError?.(e)
+  } finally {
+    uploading.value = false
+  }
+}
 </script>
 
 <template>
@@ -165,6 +185,19 @@ function formatSize(bytes) {
       <!-- 内容区：视频 / 资源 tab -->
       <el-tabs class="tabs" v-model="activeTab">
         <el-tab-pane label="课程视频" name="videos">
+          <div v-if="isOwner" class="upload-bar">
+            <el-upload
+              :show-file-list="false"
+              :http-request="onUploadVideo"
+              accept="video/*"
+              :disabled="uploading"
+            >
+              <el-button type="primary" :loading="uploading">
+                {{ uploading ? '上传中...' : '上传视频' }}
+              </el-button>
+            </el-upload>
+            <span class="upload-tip">支持 mp4/webm 等常见格式，大文件建议后续走分片直传</span>
+          </div>
           <div v-if="detail.videos && detail.videos.length" class="video-list">
             <div
               v-for="v in detail.videos"
@@ -284,6 +317,18 @@ function formatSize(bytes) {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.upload-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0 16px;
+}
+
+.upload-tip {
+  font-size: 12px;
+  color: #9ca3af;
 }
 
 .video-item {

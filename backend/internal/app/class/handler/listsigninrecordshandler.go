@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strconv"
 
 	"learningplatform/internal/app/class"
 	"learningplatform/internal/app/class/logic"
@@ -18,7 +19,8 @@ func listSigninRecordsHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 		classId := class.ParseIntPath(r, "id")
-		resp, err := logic.NewListSigninRecordsLogic(r.Context(), svcCtx).ListSigninRecords(classId, cu)
+		signinId, _ := strconv.ParseInt(r.URL.Query().Get("signinId"), 10, 64)
+		resp, err := logic.NewListSigninRecordsLogic(r.Context(), svcCtx).ListSigninRecords(classId, signinId, cu)
 		if err != nil {
 			class.WriteBizError(w, err)
 			return

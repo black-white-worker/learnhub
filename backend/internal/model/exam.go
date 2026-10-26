@@ -135,3 +135,39 @@ func (m *ExamModel) GradeSubmission(submissionId int64, teacherScore int, commen
 		"UPDATE exam_submissions SET teacher_score=?, comment=? WHERE id=?", teacherScore, comment, submissionId)
 	return err
 }
+
+// StartSubmission 学生开考：写一行 submission，started_at=now。
+// 唯一键 (exam_id, user_id)：重复调用不覆盖 started_at（用 INSERT IGNORE），
+// 学生可以反复点"开始"但只记第一次的时间。
+func (m *ExamModel) StartSubmission(examId, userId int64, startedAt interface{}) error {
+	_, err := m.conn.ExecCtx(context.Background(),
+		"INSERT IGNORE INTO exam_submissions (exam_id, user_id, started_at) VALUES (?,?,?)",
+		examId, userId, startedAt)
+	return err
+}
+
+// BatchInsertQuestions 事务批量插入题目，返回新题 id 列表。
+// 教师手动组卷：一次把整份试卷的题目塞进库。
+func (m *ExamModel) BatchInsertQuestions(qs []*ExamQuestionRow) ([]int64, error) {
+	if len(qs) == 0 {
+		return nil, nil
+	}
+	ids := make([]int64, 0, len(qs))
+	err := m.conn.TransactCtx(context.Background(), func(ctx context.Context, tx sqlx.Session) error {
+		for _, q := range qs {
+			res, err := tx.ExecCtx(ctx,
+				"INSERT INTO exam_questions (exam_id, type, stem, options, answer, score) VALUES (?,?,?,?,?,?)",
+				q.ExamId, q.Type, q.Stem, q.Options, q.Answer, q.Score)
+			if err != nil {
+				return err
+			}
+			id, _ := res.LastInsertId()
+			ids = append(ids, id)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return ids, nil
+}

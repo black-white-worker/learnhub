@@ -22,8 +22,12 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 		{Method: http.MethodGet, Path: "/api/class/:id/exams", Handler: listExamsHandler(serverCtx)},
 		// 考试详情
 		{Method: http.MethodGet, Path: "/api/exam/:id", Handler: examDetailHandler(serverCtx)},
-		// 给考试加题
+		// 给考试加题（单题）
 		{Method: http.MethodPost, Path: "/api/exam/:id/questions", Handler: addQuestionHandler(serverCtx)},
+		// 批量组卷（老师一次加多道题）
+		{Method: http.MethodPost, Path: "/api/exam/:id/questions/batch", Handler: batchAddQuestionsHandler(serverCtx)},
+		// 学生开考
+		{Method: http.MethodPost, Path: "/api/exam/:id/start", Handler: startExamHandler(serverCtx)},
 		// 交卷
 		{Method: http.MethodPost, Path: "/api/exam/:id/submit", Handler: submitHandler(serverCtx)},
 		// 老师手批
@@ -152,5 +156,46 @@ func gradeHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 		httpx.WriteJson(w, http.StatusOK, map[string]string{"message": "批改成功"})
+	}
+}
+
+// startExamHandler 学生点"开始考试"，写 started_at，返回截止时间前端倒计时。
+func startExamHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cu, be := class.CurrentUser(r, svcCtx)
+		if be != nil {
+			class.WriteBizError(w, be)
+			return
+		}
+		examId := class.ParseIntPath(r, "id")
+		resp, err := logic.NewExamLogic(r.Context(), svcCtx).StartExam(examId, cu)
+		if err != nil {
+			class.WriteBizError(w, err)
+			return
+		}
+		httpx.WriteJson(w, http.StatusOK, resp)
+	}
+}
+
+// batchAddQuestionsHandler 老师批量组卷。
+func batchAddQuestionsHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cu, be := class.CurrentUser(r, svcCtx)
+		if be != nil {
+			class.WriteBizError(w, be)
+			return
+		}
+		examId := class.ParseIntPath(r, "id")
+		var req exam.BatchAddQuestionsReq
+		if err := class.ParseJSON(r, &req); err != nil {
+			class.WriteBizError(w, err)
+			return
+		}
+		resp, err := logic.NewExamLogic(r.Context(), svcCtx).BatchAddQuestions(examId, &req, cu)
+		if err != nil {
+			class.WriteBizError(w, err)
+			return
+		}
+		httpx.WriteJson(w, http.StatusOK, resp)
 	}
 }

@@ -15,9 +15,9 @@ import (
 	"time"
 
 	"learningplatform/internal/app/user"
+	"learningplatform/internal/response"
 	"learningplatform/internal/svc"
 
-	"github.com/zeromicro/go-zero/rest/httpx"
 	"github.com/zeromicro/go-zero/rest/pathvar"
 )
 
@@ -126,11 +126,13 @@ func ParseIntPath(r *http.Request, key string) int64 {
 	return 0
 }
 
-// WriteBizError 统一写业务错误响应：识别 *BizError 用其状态码，否则按 500。
+// StatusCode 实现 response.codedError 接口，让 response.Error 能识别 BizError。
+// 不直接复用 Code 字段是为了语义分离：Code 既是 HTTP 状态码也是业务码，
+// 这里统一返回 Code，response 包会同时用作 HTTP 状态码和 body.code。
+func (e *BizError) StatusCode() int { return e.Code }
+
+// WriteBizError 统一写业务错误响应：委托到 response 包，输出 {code,message,data} 三层结构。
+// 历史上直接写 {"message":...}，现已统一为三层，前端拦截器按 code===0 判断成功即可。
 func WriteBizError(w http.ResponseWriter, err error) {
-	if be, ok := err.(*BizError); ok {
-		httpx.WriteJson(w, be.Code, map[string]string{"message": be.Msg})
-		return
-	}
-	httpx.WriteJson(w, http.StatusInternalServerError, map[string]string{"message": err.Error()})
+	response.WriteError(w, err)
 }

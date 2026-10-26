@@ -34,6 +34,11 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 		{Method: http.MethodPost, Path: "/api/course/upload/cover", Handler: CoverUploadHandler(serverCtx)},
 		{Method: http.MethodPost, Path: "/api/course/upload/videos", Handler: VideoUploadHandler(serverCtx)},
 		{Method: http.MethodPost, Path: "/api/course/upload/resource", Handler: ResourceUploadHandler(serverCtx)},
+		// 分片直传（视频大文件，前端直传 MinIO）
+		{Method: http.MethodPost, Path: "/api/course/upload/multipart/init", Handler: MultipartInitHandler(serverCtx)},
+		{Method: http.MethodPost, Path: "/api/course/upload/multipart/sign", Handler: MultipartSignHandler(serverCtx)},
+		{Method: http.MethodPost, Path: "/api/course/upload/multipart/complete", Handler: MultipartCompleteHandler(serverCtx)},
+		{Method: http.MethodPost, Path: "/api/course/upload/multipart/abort", Handler: MultipartAbortHandler(serverCtx)},
 		{Method: http.MethodPut, Path: "/api/course/edit", Handler: EditCourseHandler(serverCtx)},
 		{Method: http.MethodDelete, Path: "/api/course/delete/:id", Handler: DeleteCourseHandler(serverCtx)},
 		{Method: http.MethodDelete, Path: "/api/course/resource/:courseId/:resourceId", Handler: ResourceDeleteHandler(serverCtx)},

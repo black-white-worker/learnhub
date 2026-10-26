@@ -54,6 +54,7 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 		{Method: http.MethodPost, Path: "/api/class/:id/signin/start", Handler: startSigninHandler(serverCtx)},
 		{Method: http.MethodGet, Path: "/api/class/:id/signin", Handler: getActiveSigninHandler(serverCtx)},
 		{Method: http.MethodPost, Path: "/api/class/:id/signin/do", Handler: doSigninHandler(serverCtx)},
+		{Method: http.MethodPost, Path: "/api/class/:id/signin/end", Handler: EndSigninHandler(serverCtx)},
 		{Method: http.MethodGet, Path: "/api/class/:id/signin/records", Handler: listSigninRecordsHandler(serverCtx)},
 		{Method: http.MethodGet, Path: "/api/class/:id/signin/history", Handler: listSigninsHistoryHandler(serverCtx)},
 

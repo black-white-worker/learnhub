@@ -1,8 +1,9 @@
 <script setup>
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute, RouterView } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Reading, Notebook, EditPen, Collection, ArrowDown, User } from '@element-plus/icons-vue'
+import { Reading, Notebook, EditPen, Collection, ArrowDown, User, Bell } from '@element-plus/icons-vue'
+import axios from 'axios'
 
 const router = useRouter()
 const route = useRoute()
@@ -94,6 +95,28 @@ function logout() {
   ElMessage.success('已退出登录')
   router.push('/')
 }
+
+// ===== 未读消息数（顶栏铃铛红点）=====
+const unreadCount = ref(0)
+let pollTimer = null
+async function loadUnread() {
+  if (!username.value) { unreadCount.value = 0; return }
+  try {
+    const token = localStorage.getItem('token')
+    const r = await axios.get('/api/notifications', {
+      headers: { Authorization: 'Bearer ' + token },
+    })
+    unreadCount.value = r.data?.unread || 0
+  } catch {
+    // 静默失败，不打扰用户
+  }
+}
+onMounted(() => {
+  loadUnread()
+  pollTimer = setInterval(loadUnread, 60000) // 每 60s 拉一次
+})
+onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
+watch(username, loadUnread)
 </script>
 
 <template>
@@ -140,6 +163,11 @@ function logout() {
         </nav>
         <div class="user-area">
           <template v-if="username">
+            <el-badge :value="unreadCount" :hidden="unreadCount === 0" :max="99" class="bell-badge">
+              <div class="bell" @click="router.push('/profile')">
+                <el-icon :size="20"><Bell /></el-icon>
+              </div>
+            </el-badge>
             <el-dropdown trigger="click" @command="onUserCommand">
               <div class="user-trigger">
                 <el-avatar :size="32" class="avatar">{{ username.charAt(0).toUpperCase() }}</el-avatar>
@@ -253,8 +281,18 @@ function logout() {
 .user-area {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
 }
+
+.bell {
+  color: #fff;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+}
+.bell:hover { background: rgba(255,255,255,0.15); }
 
 .user-trigger {
   display: flex;

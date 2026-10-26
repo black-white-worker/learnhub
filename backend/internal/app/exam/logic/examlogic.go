@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"time"
 
 	"learningplatform/internal/app/class"
@@ -153,36 +152,18 @@ func (l *ExamLogic) Submit(examId int64, req *exam.SubmitReq, cu *class.CtxUser)
 		return nil, &class.BizError{Code: http.StatusBadRequest, Msg: "考试已结束"}
 	}
 
-	// 自动判客观题
+	// 自动判客观题（抽成纯函数 scoreExam，可单测）
 	questions, _ := l.svcCtx.ExamStore.ListQuestions(examId)
-	autoScore := 0
-	for _, q := range questions {
-		if q.Type == "essay" {
-			continue
-		}
-		pick, ok := req.Answers[strconv.FormatInt(q.Id, 10)]
-		if !ok {
-			continue
-		}
-		if q.Type == "multiple" {
-			if class.SameMultiChoice(pick, q.Answer) {
-				autoScore += q.Score
-			}
-			continue
-		}
-		if pick == q.Answer {
-			autoScore += q.Score
-		}
-	}
+	scoreRes := ScoreExam(questions, req.Answers)
 	answersJSON, _ := json.Marshal(req.Answers)
 
 	if err := l.svcCtx.ExamStore.UpsertSubmission(&model.ExamSubmissionRow{
 		ExamId: examId, UserId: cu.Id, Answers: string(answersJSON),
-		AutoScore: nullInt(autoScore),
+		AutoScore: nullInt(scoreRes.AutoScore),
 	}); err != nil {
 		return nil, err
 	}
-	return &exam.SubmitResp{Message: "交卷成功", AutoScore: autoScore}, nil
+	return &exam.SubmitResp{Message: "交卷成功", AutoScore: scoreRes.AutoScore}, nil
 }
 
 // Grade 老师手批
@@ -199,4 +180,83 @@ func nullInt(v int) (r sql.NullInt64) {
 	r.Int64 = int64(v)
 	r.Valid = true
 	return
+}
+
+// StartExam 学生点"开始考试"：在 exam_submissions 写一行 started_at=now。
+// 后续交卷 UpsertSubmission 会基于唯一键 (exam_id,user_id) 更新 answers/auto_score。
+// 重复调用不会重置 started_at（model 层用 INSERT IGNORE）。
+func (l *ExamLogic) StartExam(examId int64, cu *class.CtxUser) (*exam.StartExamResp, error) {
+	e, err := l.svcCtx.ExamStore.GetExam(examId)
+	if err != nil {
+		return nil, &class.BizError{Code: http.StatusNotFound, Msg: "考试不存在"}
+	}
+	role, be := class.RequireClassMember(l.svcCtx, e.ClassId, cu)
+	if be != nil {
+		return nil, be
+	}
+	if role == "teacher" || role == "admin" {
+		return nil, &class.BizError{Code: http.StatusForbidden, Msg: "老师无需参加考试"}
+	}
+	now := time.Now()
+	if now.Before(e.StartAt) {
+		return nil, &class.BizError{Code: http.StatusBadRequest, Msg: "考试还未开始"}
+	}
+	if now.After(e.EndAt) {
+		return nil, &class.BizError{Code: http.StatusBadRequest, Msg: "考试已结束"}
+	}
+	if err := l.svcCtx.ExamStore.StartSubmission(examId, cu.Id, now); err != nil {
+		return nil, err
+	}
+	// 截止时间 = min(end_at, started_at + duration)
+	deadline := e.EndAt
+	latestStart := e.StartAt.Add(time.Duration(e.DurationMin) * time.Minute)
+	if latestStart.Before(deadline) {
+		deadline = latestStart
+	}
+	return &exam.StartExamResp{
+		ExamId:      examId,
+		StartedAt:   now.Format(time.RFC3339),
+		DeadlineAt:  deadline.Format(time.RFC3339),
+		DurationMin: e.DurationMin,
+	}, nil
+}
+
+// BatchAddQuestions 老师一次给考试加多道题（手动组卷）。
+// 与 AddQuestion 单题接口互补：整份试卷录入时用这个接口，省 N 次 RTT。
+func (l *ExamLogic) BatchAddQuestions(examId int64, req *exam.BatchAddQuestionsReq, cu *class.CtxUser) (*exam.BatchAddQuestionsResp, error) {
+	e, err := l.svcCtx.ExamStore.GetExam(examId)
+	if err != nil {
+		return nil, &class.BizError{Code: http.StatusNotFound, Msg: "考试不存在"}
+	}
+	if be := class.RequireTeacher(l.svcCtx, e.ClassId, cu); be != nil {
+		return nil, be
+	}
+	if len(req.Questions) == 0 {
+		return nil, &class.BizError{Code: http.StatusBadRequest, Msg: "题目列表不能为空"}
+	}
+	rows := make([]*model.ExamQuestionRow, 0, len(req.Questions))
+	for _, q := range req.Questions {
+		if q.Stem == "" {
+			return nil, &class.BizError{Code: http.StatusBadRequest, Msg: "题干不能为空"}
+		}
+		qt := q.Type
+		if qt == "" {
+			qt = "single"
+		}
+		if qt != "essay" && q.Answer == "" {
+			return nil, &class.BizError{Code: http.StatusBadRequest, Msg: "选择题/判断题答案不能为空"}
+		}
+		score := q.Score
+		if score <= 0 {
+			score = 5
+		}
+		rows = append(rows, &model.ExamQuestionRow{
+			ExamId: examId, Type: qt, Stem: q.Stem, Options: q.Options, Answer: q.Answer, Score: score,
+		})
+	}
+	ids, err := l.svcCtx.ExamStore.BatchInsertQuestions(rows)
+	if err != nil {
+		return nil, err
+	}
+	return &exam.BatchAddQuestionsResp{Count: len(ids), Ids: ids}, nil
 }

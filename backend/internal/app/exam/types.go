@@ -43,3 +43,30 @@ type GradeReq struct {
 	TeacherScore int    `json:"teacherScore"`
 	Comment      string `json:"comment" form:"comment,optional"`
 }
+
+// StartExamResp 学生开考响应：返回考试时长和截止时间，前端据此倒计时。
+type StartExamResp struct {
+	ExamId      int64  `json:"examId"`
+	StartedAt   string `json:"startedAt"`   // RFC3339
+	DeadlineAt  string `json:"deadlineAt"` // 学生个人交卷截止（= start+duration 与 end_at 的较早者）
+	DurationMin int    `json:"durationMinutes"`
+}
+
+// BatchAddQuestionsReq 老师批量组卷：一次塞多道题。
+type BatchAddQuestionsReq struct {
+	Questions []BatchQuestionItem `json:"questions"`
+}
+
+// BatchQuestionItem 批量组卷里的单题项，字段与 AddQuestionReq 对齐。
+type BatchQuestionItem struct {
+	Type    string `json:"type"` // single/multiple/judge/essay
+	Stem    string `json:"stem"`
+	Options string `json:"options" form:"options,optional"`
+	Answer  string `json:"answer" form:"answer,optional"`
+	Score   int    `json:"score" form:"score,optional"`
+}
+
+type BatchAddQuestionsResp struct {
+	Count int    `json:"count"`
+	Ids   []int64 `json:"ids"`
+}
