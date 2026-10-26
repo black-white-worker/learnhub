@@ -20,6 +20,8 @@ const showAnswerSheet = ref(false)
 
 // 老师端批阅表单
 const gradeForm = ref({})
+const showSubmission = ref(false)
+const activeSubmission = ref(null)
 
 const timer = ref(null)
 const remainSeconds = ref(0)
@@ -114,10 +116,23 @@ async function gradeSubmission(submissionId) {
     }, auth)
     ElMessage.success('批改成功')
     load()
+    showSubmission.value = false
   } catch (e) {
     ElMessage.error(e.response?.data?.message || '批改失败')
   }
 }
+
+// 打开学生答卷详情
+function openSubmission(row) {
+  activeSubmission.value = row
+  showSubmission.value = true
+}
+
+// 解析学生答案为 {qid: value}
+const submissionAnswers = computed(() => {
+  if (!activeSubmission.value?.answers) return {}
+  try { return JSON.parse(activeSubmission.value.answers) } catch (e) { return {} }
+})
 
 onMounted(load)
 </script>
@@ -151,29 +166,60 @@ onMounted(load)
       <el-divider />
       <h3 style="margin-left:12px">学生提交（{{ detail.submissions?.length || 0 }} 人）</h3>
       <el-table :data="detail.submissions" size="small" style="margin:0 12px" max-height="400">
-        <el-table-column prop="username" label="学生" width="100" />
-        <el-table-column prop="autoScore" label="客观题分" width="90" />
-        <el-table-column label="作答" min-width="200">
+        <el-table-column label="学生" width="120">
           <template #default="{ row }">
-            <span>{{ row.answers }}</span>
+            <el-link type="primary" @click="openSubmission(row)">{{ row.username }}</el-link>
           </template>
         </el-table-column>
-        <el-table-column label="手打分" width="140">
-          <template #default="{ row }">
-            <el-input-number v-model="gradeForm[row.id].teacherScore" :min="0" :max="detail.exam.totalScore" size="small" style="width:110px" />
-          </template>
+        <el-table-column prop="autoScore" label="客观题分" width="100">
+          <template #default="{ row }">{{ row.autoScore ?? '未判' }}</template>
         </el-table-column>
-        <el-table-column label="评语" width="180">
-          <template #default="{ row }">
-            <el-input v-model="gradeForm[row.id].comment" size="small" />
-          </template>
+        <el-table-column prop="teacherScore" label="老师评分" width="100">
+          <template #default="{ row }">{{ row.teacherScore ?? '-' }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="80">
+        <el-table-column prop="submittedAt" label="提交时间" min-width="180">
+          <template #default="{ row }">{{ row.submittedAt ? new Date(row.submittedAt).toLocaleString() : '-' }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="120">
           <template #default="{ row }">
-            <el-button size="small" type="primary" @click="gradeSubmission(row.id)">批改</el-button>
+            <el-button size="small" type="primary" @click="openSubmission(row)">查看答卷</el-button>
           </template>
         </el-table-column>
       </el-table>
+
+      <!-- 学生答卷详情弹窗 -->
+      <el-dialog v-model="showSubmission" :title="`${activeSubmission?.username} 的答卷`" width="700px" top="5vh">
+        <div v-if="activeSubmission" style="max-height:60vh;overflow-y:auto">
+          <div v-for="(q, i) in detail.questions" :key="q.id" style="padding:12px;border-bottom:1px solid #eee">
+            <div style="font-weight:600;margin-bottom:8px">{{ i+1 }}. {{ q.stem }} <span style="color:#999;font-weight:400">({{ q.score }}分)</span></div>
+            <div style="margin-left:16px">
+              <div v-if="q.type === 'single' || q.type === 'multiple'">
+                <div v-for="(opt, oi) in (typeof q.options === 'string' ? JSON.parse(q.options) : q.options)" :key="oi"
+                     :style="{color: submissionAnswers[q.id] === 'ABCD'[oi] ? '#409eff' : '#333', margin:'4px 0'}">
+                  {{ 'ABCD'[oi] }}. {{ opt }}
+                  <span v-if="submissionAnswers[q.id] === 'ABCD'[oi]" style="color:#67c23a;margin-left:8px">✓ 学生选了这个</span>
+                </div>
+              </div>
+              <div v-else-if="q.type === 'judge'">
+                <div style="color:{{submissionAnswers[q.id]==='true'?'#409eff':'#333'}}">✓ 对</div>
+                <div style="color:{{submissionAnswers[q.id]==='false'?'#409eff':'#333'}}">✗ 错</div>
+              </div>
+              <div v-else>
+                <div style="background:#f5f7fa;padding:8px;border-radius:4px;white-space:pre-wrap">学生答案：{{ submissionAnswers[q.id] || '(未答)' }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <template #footer>
+          <div style="display:flex;gap:12px;align-items:center">
+            <span style="color:#666">老师评分：</span>
+            <el-input-number v-model="gradeForm[activeSubmission.id].teacherScore" :min="0" :max="detail.exam.totalScore" size="small" />
+            <el-input v-model="gradeForm[activeSubmission.id].comment" placeholder="评语" size="small" style="flex:1" />
+            <el-button @click="showSubmission = false">关闭</el-button>
+            <el-button type="primary" @click="gradeSubmission(activeSubmission.id)">保存批改</el-button>
+          </div>
+        </template>
+      </el-dialog>
     </template>
 
     <!-- 学生端：问卷式大卡片 -->

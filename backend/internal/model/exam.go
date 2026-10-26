@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"time"
 
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
@@ -45,11 +46,33 @@ type ExamSubmissionRow struct {
 	UserId       int64          `db:"user_id" json:"userId"`
 	Username     string         `db:"username" json:"username"`
 	Answers      string         `db:"answers" json:"answers"`
-	AutoScore    sql.NullInt64  `db:"auto_score" json:"autoScore"`
-	TeacherScore sql.NullInt64  `db:"teacher_score" json:"teacherScore"`
+	AutoScore    sql.NullInt64  `db:"auto_score" json:"-"`
+	TeacherScore sql.NullInt64  `db:"teacher_score" json:"-"`
 	Comment      string         `db:"comment" json:"comment"`
 	StartedAt    sql.NullTime   `db:"started_at" json:"startedAt"`
 	SubmittedAt  time.Time      `db:"submitted_at" json:"submittedAt"`
+}
+
+// MarshalJSON 把 sql.NullInt64 转成普通数字，避免前端收到 {"Int64":5,"Valid":true}
+func (s *ExamSubmissionRow) MarshalJSON() ([]byte, error) {
+	type Alias ExamSubmissionRow
+	return json.Marshal(&struct {
+		AutoScore    *int64 `json:"autoScore"`
+		TeacherScore *int64 `json:"teacherScore"`
+		*Alias
+	}{
+		AutoScore:    nullInt64Ptr(s.AutoScore),
+		TeacherScore: nullInt64Ptr(s.TeacherScore),
+		Alias:        (*Alias)(s),
+	})
+}
+
+func nullInt64Ptr(n sql.NullInt64) *int64 {
+	if !n.Valid {
+		return nil
+	}
+	v := n.Int64
+	return &v
 }
 
 type ExamModel struct {
