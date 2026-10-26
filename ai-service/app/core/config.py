@@ -9,15 +9,15 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
 
-    # LLM（OpenAI 兼容接口，本地 ollama / 通义 / 任何兼容端点都行）
-    llm_base_url: str = "http://localhost:11434/v1"
-    llm_api_key: str = "not-needed"
-    llm_model: str = "qwen2.5:7b"
+    # LLM：通义千问 DashScope OpenAI 兼容模式
+    llm_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    llm_api_key: str = ""
+    llm_model: str = "qwen-plus"
     llm_timeout: int = 60
 
-    # Embedding（bge-m3，本地用 ollama 跑，或调远程 embedding 服务）
-    embedding_base_url: str = "http://localhost:11434/v1"
-    embedding_model: str = "bge-m3"
+    # Embedding：通义 text-embedding-v3
+    embedding_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    embedding_model: str = "text-embedding-v3"
 
     # 向量库：chroma 本地目录
     vector_db_dir: str = "./data/chroma"

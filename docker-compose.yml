@@ -158,9 +158,12 @@ services:
     environment:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       MONGODB_URL: mongodb://mongo:27017
-      # LLM 走宿主机上的 ollama
-      LLM_BASE_URL: http://host.docker.internal:11434/v1
-      EMBEDDING_BASE_URL: http://host.docker.internal:11434/v1
+      # LLM 走通义千问 DashScope 在线 API
+      LLM_BASE_URL: https://dashscope.aliyuncs.com/compatible-mode/v1
+      LLM_API_KEY: sk-ws-H.EHDIPIL.57xN.MEUCIBIKRzYmS_5N5Gt3_HNRkpKANh6VBzIEo-1FQj6yCs0DAiEAspwNWKYdhkiTWJaSgFpMr12Ahl19fSaEgzpzcwMXaWo
+      LLM_MODEL: qwen-plus
+      EMBEDDING_BASE_URL: https://dashscope.aliyuncs.com/compatible-mode/v1
+      EMBEDDING_MODEL: text-embedding-v3
       GO_CALLBACK_BASE: http://backend:8888
     # 不映射端口到宿主机，外部请求必须经过 Go 主服务转发
     expose:
