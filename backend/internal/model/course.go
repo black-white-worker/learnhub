@@ -89,6 +89,26 @@ func (m *CourseModel) ListCourses() ([]*CourseRow, error) {
 	return rows, err
 }
 
+// ListCoursesPaged 课程分页列表。
+func (m *CourseModel) ListCoursesPaged(page, size int) ([]*CourseRow, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 || size > 100 {
+		size = 20
+	}
+	offset := (page - 1) * size
+	var total int64
+	if err := m.conn.QueryRowCtx(context.Background(), &total, "SELECT COUNT(*) FROM courses"); err != nil {
+		return nil, 0, err
+	}
+	var rows []*CourseRow
+	err := m.conn.QueryRowsCtx(context.Background(), &rows,
+		"SELECT id, name, intro, teacher, created_by, cover_url, cover_thumb_url FROM courses ORDER BY id DESC LIMIT ? OFFSET ?",
+		size, offset)
+	return rows, total, err
+}
+
 // UpdateCourse 更新课程基本信息。
 func (m *CourseModel) UpdateCourse(id int64, name, intro, teacher string) error {
 	_, err := m.conn.ExecCtx(context.Background(),

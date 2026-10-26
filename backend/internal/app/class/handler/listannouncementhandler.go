@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strconv"
 
 	"learningplatform/internal/app/class"
 	"learningplatform/internal/app/class/logic"
@@ -18,7 +19,9 @@ func listAnnouncementsHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 		classId := class.ParseIntPath(r, "id")
-		resp, err := logic.NewListAnnouncementsLogic(r.Context(), svcCtx).ListAnnouncements(classId, cu)
+		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+		size, _ := strconv.Atoi(r.URL.Query().Get("pageSize"))
+		resp, err := logic.NewListAnnouncementsLogic(r.Context(), svcCtx).ListAnnouncements(int(classId), page, size, cu)
 		if err != nil {
 			class.WriteBizError(w, err)
 			return

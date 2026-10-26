@@ -30,7 +30,8 @@ type ScoreResult struct {
 func ScoreExam(questions []*model.ExamQuestionRow, answers map[string]string) ScoreResult {
 	res := ScoreResult{}
 	for _, q := range questions {
-		if q.Type == "essay" {
+		// 主观题/填空/文件上传：老师手批，不自动判
+		if q.Type == "essay" || q.Type == "fill" || q.Type == "fileupload" {
 			continue
 		}
 		pick, ok := answers[strconv.FormatInt(q.Id, 10)]

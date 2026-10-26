@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strconv"
 
 	"learningplatform/internal/app/course/logic"
 	"learningplatform/internal/svc"
@@ -9,12 +10,13 @@ import (
 	"github.com/zeromicro/go-zero/rest/httpx"
 )
 
-// ListHandler 课程列表接口的 HTTP 处理器：
-// 该接口不需要请求体，直接调用业务逻辑，把课程列表以 JSON 返回。
+// ListHandler 课程分页列表：GET /api/course/list?page=1&pageSize=12
 func ListHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+		size, _ := strconv.Atoi(r.URL.Query().Get("pageSize"))
 		l := logic.NewListLogic(r.Context(), svcCtx)
-		resp, err := l.List()
+		resp, err := l.List(page, size)
 		if err != nil {
 			httpx.ErrorCtx(r.Context(), w, err)
 		} else {

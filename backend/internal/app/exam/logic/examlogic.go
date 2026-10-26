@@ -56,12 +56,16 @@ func (l *ExamLogic) CreateExam(classId int64, req *exam.CreateExamReq, cu *class
 	return &exam.CreateExamResp{Id: id}, nil
 }
 
-// ListExams 班级考试列表
-func (l *ExamLogic) ListExams(classId int64, cu *class.CtxUser) (interface{}, error) {
+// ListExams 班级考试列表（分页）
+func (l *ExamLogic) ListExams(classId int64, page, size int, cu *class.CtxUser) (interface{}, error) {
 	if _, be := class.RequireClassMember(l.svcCtx, classId, cu); be != nil {
 		return nil, be
 	}
-	return l.svcCtx.ExamStore.ListExamsByClass(classId)
+	list, total, err := l.svcCtx.ExamStore.ListExamsByClassPaged(classId, page, size)
+	if err != nil {
+		return nil, err
+	}
+	return &exam.PagedResp{List: list, Total: total, Page: page, PageSize: size}, nil
 }
 
 // Detail 考试详情：学生看题目+自己提交，老师看提交列表
@@ -100,7 +104,8 @@ func (l *ExamLogic) Detail(examId int64, cu *class.CtxUser) (interface{}, error)
 	}, nil
 }
 
-// AddQuestion 老师给考试加题
+// AddQuestion 老师给考试加题（空题卡，点题型栏追加）。
+// 对标腾讯问卷：题干可以先空着，后端只做最基本校验。
 func (l *ExamLogic) AddQuestion(examId int64, req *exam.AddQuestionReq, cu *class.CtxUser) (*exam.AddQuestionResp, error) {
 	e, err := l.svcCtx.ExamStore.GetExam(examId)
 	if err != nil {
@@ -109,26 +114,126 @@ func (l *ExamLogic) AddQuestion(examId int64, req *exam.AddQuestionReq, cu *clas
 	if be := class.RequireTeacher(l.svcCtx, e.ClassId, cu); be != nil {
 		return nil, be
 	}
-	if req.Stem == "" {
-		return nil, &class.BizError{Code: http.StatusBadRequest, Msg: "题干不能为空"}
+	qt := req.Type
+	if qt == "" {
+		qt = "single"
 	}
-	if req.Type == "" {
-		req.Type = "single"
-	}
-	if req.Type != "essay" && req.Answer == "" {
-		return nil, &class.BizError{Code: http.StatusBadRequest, Msg: "选择题/判断题答案不能为空"}
+	// 允许的题型：single单选 multiple多选 judge判断 fill填空 essay简答 fileupload文件上传
+	allowed := map[string]bool{"single": true, "multiple": true, "judge": true, "fill": true, "essay": true, "fileupload": true}
+	if !allowed[qt] {
+		return nil, &class.BizError{Code: http.StatusBadRequest, Msg: "题型不支持"}
 	}
 	score := req.Score
 	if score <= 0 {
 		score = 5
 	}
+	// 新题追加到末尾
+	maxOrder, _ := l.svcCtx.ExamStore.MaxOrderNum(examId)
 	id, err := l.svcCtx.ExamStore.InsertQuestion(&model.ExamQuestionRow{
-		ExamId: examId, Type: req.Type, Stem: req.Stem, Options: req.Options, Answer: req.Answer, Score: score,
+		ExamId: examId, Type: qt, Stem: req.Stem, Options: req.Options, Answer: req.Answer,
+		Score: score, OrderNum: maxOrder + 1, Required: 1,
 	})
 	if err != nil {
 		return nil, err
 	}
 	return &exam.AddQuestionResp{Id: id}, nil
+}
+
+// UpdateQuestion 编辑单题（题干/选项/答案/分值/必答）。
+func (l *ExamLogic) UpdateQuestion(qid int64, req *exam.UpdateQuestionReq, cu *class.CtxUser) error {
+	q, err := l.svcCtx.ExamStore.GetQuestion(qid)
+	if err != nil {
+		return &class.BizError{Code: http.StatusNotFound, Msg: "题目不存在"}
+	}
+	e, err := l.svcCtx.ExamStore.GetExam(q.ExamId)
+	if err != nil {
+		return &class.BizError{Code: http.StatusNotFound, Msg: "考试不存在"}
+	}
+	if be := class.RequireTeacher(l.svcCtx, e.ClassId, cu); be != nil {
+		return be
+	}
+	required := q.Required
+	if req.Required != nil {
+		required = *req.Required
+	}
+	score := req.Score
+	if score <= 0 {
+		score = q.Score
+	}
+	qt := req.Type
+	if qt == "" {
+		qt = q.Type
+	}
+	return l.svcCtx.ExamStore.UpdateQuestion(&model.ExamQuestionRow{
+		Id: qid, ExamId: q.ExamId, Type: qt, Stem: req.Stem, Options: req.Options,
+		Answer: req.Answer, Score: score, Required: required,
+	})
+}
+
+// DeleteQuestion 删题。
+func (l *ExamLogic) DeleteQuestion(qid int64, cu *class.CtxUser) error {
+	q, err := l.svcCtx.ExamStore.GetQuestion(qid)
+	if err != nil {
+		return &class.BizError{Code: http.StatusNotFound, Msg: "题目不存在"}
+	}
+	e, err := l.svcCtx.ExamStore.GetExam(q.ExamId)
+	if err != nil {
+		return &class.BizError{Code: http.StatusNotFound, Msg: "考试不存在"}
+	}
+	if be := class.RequireTeacher(l.svcCtx, e.ClassId, cu); be != nil {
+		return be
+	}
+	return l.svcCtx.ExamStore.DeleteQuestion(qid)
+}
+
+// SortQuestions 拖拽排序。
+func (l *ExamLogic) SortQuestions(examId int64, req *exam.SortQuestionsReq, cu *class.CtxUser) error {
+	e, err := l.svcCtx.ExamStore.GetExam(examId)
+	if err != nil {
+		return &class.BizError{Code: http.StatusNotFound, Msg: "考试不存在"}
+	}
+	if be := class.RequireTeacher(l.svcCtx, e.ClassId, cu); be != nil {
+		return be
+	}
+	if len(req.Order) == 0 {
+		return &class.BizError{Code: http.StatusBadRequest, Msg: "排序数组不能为空"}
+	}
+	return l.svcCtx.ExamStore.SortQuestions(examId, req.Order)
+}
+
+// UpdateExam 更新考试基本信息。
+func (l *ExamLogic) UpdateExam(examId int64, req *exam.UpdateExamReq, cu *class.CtxUser) error {
+	e, err := l.svcCtx.ExamStore.GetExam(examId)
+	if err != nil {
+		return &class.BizError{Code: http.StatusNotFound, Msg: "考试不存在"}
+	}
+	if be := class.RequireTeacher(l.svcCtx, e.ClassId, cu); be != nil {
+		return be
+	}
+	if req.Title == "" {
+		return &class.BizError{Code: http.StatusBadRequest, Msg: "考试标题不能为空"}
+	}
+	start, err1 := time.ParseInLocation("2006-01-02T15:04", req.StartAt, time.Local)
+	end, err2 := time.ParseInLocation("2006-01-02T15:04", req.EndAt, time.Local)
+	if err1 != nil || err2 != nil {
+		return &class.BizError{Code: http.StatusBadRequest, Msg: "开始/结束时间格式应为 YYYY-MM-DDTHH:mm"}
+	}
+	if !end.After(start) {
+		return &class.BizError{Code: http.StatusBadRequest, Msg: "结束时间必须晚于开始时间"}
+	}
+	dur := req.DurationMin
+	if dur <= 0 {
+		dur = e.DurationMin
+	}
+	total := req.TotalScore
+	if total <= 0 {
+		total = e.TotalScore
+	}
+	return l.svcCtx.ExamStore.UpdateExam(&model.ExamRow{
+		Id: examId, Title: req.Title, Description: req.Description,
+		StartAt: start, EndAt: end, DurationMin: dur, TotalScore: total,
+		AllowLate: req.AllowLate, TabLimit: req.TabLimit,
+	})
 }
 
 // Submit 学生交卷

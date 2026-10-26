@@ -83,6 +83,11 @@ const router = createRouter({
       component: () => import('../views/ExamDetailView.vue'),
     },
     {
+      path: '/assignment/:id',
+      name: 'assignment-detail',
+      component: () => import('../views/AssignmentDetailView.vue'),
+    },
+    {
       path: '/admin/users',
       name: 'admin-users',
       component: () => import('../views/admin/AdminUsersView.vue'),

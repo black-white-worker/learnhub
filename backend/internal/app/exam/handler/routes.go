@@ -2,6 +2,7 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 
 	"learningplatform/internal/app/class"
@@ -18,14 +19,24 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 	routes := []rest.Route{
 		// 创建考试
 		{Method: http.MethodPost, Path: "/api/class/:id/exam", Handler: createExamHandler(serverCtx)},
-		// 班级考试列表
+		// 班级考试列表（分页）
 		{Method: http.MethodGet, Path: "/api/class/:id/exams", Handler: listExamsHandler(serverCtx)},
 		// 考试详情
 		{Method: http.MethodGet, Path: "/api/exam/:id", Handler: examDetailHandler(serverCtx)},
-		// 给考试加题（单题）
+		// 更新考试基本信息
+		{Method: http.MethodPut, Path: "/api/exam/:id", Handler: updateExamHandler(serverCtx)},
+		// 给考试加题（单题，空题卡）
+		{Method: http.MethodPost, Path: "/api/exam/:id/question", Handler: addQuestionHandler(serverCtx)},
+		// 兼容旧路径
 		{Method: http.MethodPost, Path: "/api/exam/:id/questions", Handler: addQuestionHandler(serverCtx)},
-		// 批量组卷（老师一次加多道题）
+		// 批量组卷（老师一次加多道题，保留但前端不用）
 		{Method: http.MethodPost, Path: "/api/exam/:id/questions/batch", Handler: batchAddQuestionsHandler(serverCtx)},
+		// 编辑单题
+		{Method: http.MethodPut, Path: "/api/exam/question/:qid", Handler: updateQuestionHandler(serverCtx)},
+		// 删除单题
+		{Method: http.MethodDelete, Path: "/api/exam/question/:qid", Handler: deleteQuestionHandler(serverCtx)},
+		// 拖拽排序
+		{Method: http.MethodPut, Path: "/api/exam/question/:qid/sort", Handler: sortQuestionsHandler(serverCtx)},
 		// 学生开考
 		{Method: http.MethodPost, Path: "/api/exam/:id/start", Handler: startExamHandler(serverCtx)},
 		// 交卷
@@ -68,7 +79,11 @@ func listExamsHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 		classId := class.ParseIntPath(r, "id")
-		resp, err := logic.NewExamLogic(r.Context(), svcCtx).ListExams(classId, cu)
+		page := 1
+		size := 20
+		fmt.Sscanf(r.URL.Query().Get("page"), "%d", &page)
+		fmt.Sscanf(r.URL.Query().Get("pageSize"), "%d", &size)
+		resp, err := logic.NewExamLogic(r.Context(), svcCtx).ListExams(classId, page, size, cu)
 		if err != nil {
 			class.WriteBizError(w, err)
 			return
@@ -197,5 +212,95 @@ func batchAddQuestionsHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 		httpx.WriteJson(w, http.StatusOK, resp)
+	}
+}
+
+// updateExamHandler 老师更新考试基本信息。
+func updateExamHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cu, be := class.CurrentUser(r, svcCtx)
+		if be != nil {
+			class.WriteBizError(w, be)
+			return
+		}
+		examId := class.ParseIntPath(r, "id")
+		var req exam.UpdateExamReq
+		if err := class.ParseJSON(r, &req); err != nil {
+			class.WriteBizError(w, err)
+			return
+		}
+		if err := logic.NewExamLogic(r.Context(), svcCtx).UpdateExam(examId, &req, cu); err != nil {
+			class.WriteBizError(w, err)
+			return
+		}
+		httpx.WriteJson(w, http.StatusOK, map[string]string{"message": "保存成功"})
+	}
+}
+
+// updateQuestionHandler 编辑单题。
+func updateQuestionHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cu, be := class.CurrentUser(r, svcCtx)
+		if be != nil {
+			class.WriteBizError(w, be)
+			return
+		}
+		qid := class.ParseIntPath(r, "qid")
+		var req exam.UpdateQuestionReq
+		if err := class.ParseJSON(r, &req); err != nil {
+			class.WriteBizError(w, err)
+			return
+		}
+		if err := logic.NewExamLogic(r.Context(), svcCtx).UpdateQuestion(qid, &req, cu); err != nil {
+			class.WriteBizError(w, err)
+			return
+		}
+		httpx.WriteJson(w, http.StatusOK, map[string]string{"message": "保存成功"})
+	}
+}
+
+// deleteQuestionHandler 删题。
+func deleteQuestionHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cu, be := class.CurrentUser(r, svcCtx)
+		if be != nil {
+			class.WriteBizError(w, be)
+			return
+		}
+		qid := class.ParseIntPath(r, "qid")
+		if err := logic.NewExamLogic(r.Context(), svcCtx).DeleteQuestion(qid, cu); err != nil {
+			class.WriteBizError(w, err)
+			return
+		}
+		httpx.WriteJson(w, http.StatusOK, map[string]string{"message": "已删除"})
+	}
+}
+
+// sortQuestionsHandler 拖拽排序。注意路径是 /question/:qid/sort，这里 qid 占位不用，从 body 取 order 数组。
+func sortQuestionsHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cu, be := class.CurrentUser(r, svcCtx)
+		if be != nil {
+			class.WriteBizError(w, be)
+			return
+		}
+		// 从 qid 反查 examId（题目所属考试）
+		qid := class.ParseIntPath(r, "qid")
+		var req exam.SortQuestionsReq
+		if err := class.ParseJSON(r, &req); err != nil {
+			class.WriteBizError(w, err)
+			return
+		}
+		// 先通过 qid 拿到 examId
+		q, err := svcCtx.ExamStore.GetQuestion(qid)
+		if err != nil {
+			class.WriteBizError(w, &class.BizError{Code: http.StatusNotFound, Msg: "题目不存在"})
+			return
+		}
+		if err := logic.NewExamLogic(r.Context(), svcCtx).SortQuestions(q.ExamId, &req, cu); err != nil {
+			class.WriteBizError(w, err)
+			return
+		}
+		httpx.WriteJson(w, http.StatusOK, map[string]string{"message": "排序已保存"})
 	}
 }

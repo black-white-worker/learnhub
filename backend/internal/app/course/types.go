@@ -67,9 +67,12 @@ type UploadVideosResponse struct {
 
 // ===== 课程列表接口 GET /api/course/list =====
 
-// ListResponse 课程列表响应体：返回全部课程（来自「课程列表」分支）。
+// ListResponse 课程列表响应体：分页返回课程。
 type ListResponse struct {
-	Courses []*Course `json:"courses"`
+	Courses  []*Course `json:"courses"`
+	Total    int64     `json:"total"`
+	Page     int       `json:"page"`
+	PageSize int       `json:"pageSize"`
 }
 
 // ===== 课程视频观看 / 进度（「课程观看」分支）=====

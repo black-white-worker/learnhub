@@ -221,6 +221,27 @@ func (m *ClassModel) ListAnnouncements(classId int64) ([]*AnnouncementRow, error
 	return rows, err
 }
 
+// ListAnnouncementsPaged 公告分页。
+func (m *ClassModel) ListAnnouncementsPaged(classId int64, page, size int) ([]*AnnouncementRow, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 || size > 100 {
+		size = 20
+	}
+	offset := (page - 1) * size
+	var total int64
+	if err := m.conn.QueryRowCtx(context.Background(), &total,
+		"SELECT COUNT(*) FROM announcements WHERE class_id=?", classId); err != nil {
+		return nil, 0, err
+	}
+	var rows []*AnnouncementRow
+	err := m.conn.QueryRowsCtx(context.Background(), &rows,
+		"SELECT id, class_id, title, content, publisher_id, is_top, created_at FROM announcements WHERE class_id=? ORDER BY is_top DESC, created_at DESC LIMIT ? OFFSET ?",
+		classId, size, offset)
+	return rows, total, err
+}
+
 func (m *ClassModel) DeleteAnnouncement(id int64) error {
 	_, err := m.conn.ExecCtx(context.Background(), "DELETE FROM announcements WHERE id=?", id)
 	return err
@@ -247,6 +268,8 @@ type AssignmentRow struct {
 	Description string       `db:"description" json:"description"`
 	Deadline    sql.NullTime `db:"deadline" json:"-"` // 用 MarshalJSON 自定义输出，避免暴露 {Time,Valid} 内部结构
 	TotalScore  int          `db:"total_score" json:"totalScore"`
+	AllowLate   int          `db:"allow_late" json:"allowLate"`
+	LateDeadline sql.NullTime `db:"late_deadline" json:"-"`
 	PublisherId int64        `db:"publisher_id" json:"publisherId"`
 	CreatedAt   time.Time    `db:"created_at" json:"createdAt"`
 }
@@ -262,12 +285,18 @@ func (a *AssignmentRow) MarshalJSON() ([]byte, error) {
 	if a.Deadline.Valid {
 		dl = a.Deadline.Time.Format("2006-01-02 15:04")
 	}
+	ldl := ""
+	if a.LateDeadline.Valid {
+		ldl = a.LateDeadline.Time.Format("2006-01-02 15:04")
+	}
 	return json.Marshal(&struct {
-		Deadline string `json:"deadline"`
+		Deadline    string `json:"deadline"`
+		LateDeadline string `json:"lateDeadline"`
 		*Alias
 	}{
-		Deadline: dl,
-		Alias:    (*Alias)(a),
+		Deadline:    dl,
+		LateDeadline: ldl,
+		Alias:       (*Alias)(a),
 	})
 }
 
@@ -284,14 +313,14 @@ func (m *ClassModel) InsertAssignment(a *AssignmentRow) (int64, error) {
 func (m *ClassModel) ListAssignments(classId int64) ([]*AssignmentRow, error) {
 	var rows []*AssignmentRow
 	err := m.conn.QueryRowsCtx(context.Background(), &rows,
-		"SELECT id, class_id, course_id, title, description, deadline, total_score, publisher_id, created_at FROM assignments WHERE class_id=? ORDER BY created_at DESC", classId)
+		"SELECT id, class_id, course_id, title, description, deadline, total_score, allow_late, late_deadline, publisher_id, created_at FROM assignments WHERE class_id=? ORDER BY created_at DESC", classId)
 	return rows, err
 }
 
 func (m *ClassModel) GetAssignment(id int64) (*AssignmentRow, error) {
 	var a AssignmentRow
 	err := m.conn.QueryRowCtx(context.Background(), &a,
-		"SELECT id, class_id, course_id, title, description, deadline, total_score, publisher_id, created_at FROM assignments WHERE id=?", id)
+		"SELECT id, class_id, course_id, title, description, deadline, total_score, allow_late, late_deadline, publisher_id, created_at FROM assignments WHERE id=?", id)
 	if err != nil {
 		return nil, err
 	}
@@ -533,17 +562,19 @@ func (m *ClassModel) GetGradeRule(classId int64) (videoW, assignW, signinW, exam
 type QuestionRow struct {
 	Id           int64  `db:"id" json:"id"`
 	AssignmentId int64  `db:"assignment_id" json:"assignmentId"`
-	Type         string `db:"type" json:"type"` // single / judge
+	Type         string `db:"type" json:"type"` // single/multiple/judge/fill/essay/fileupload
 	Stem         string `db:"stem" json:"stem"`
 	Options      string `db:"options" json:"options"`
 	Answer       string `db:"answer" json:"answer"`
 	Score        int    `db:"score" json:"score"`
+	OrderNum     int    `db:"order_num" json:"orderNum"`
+	Required     int    `db:"required" json:"required"`
 }
 
 func (m *ClassModel) InsertQuestion(q *QuestionRow) (int64, error) {
 	res, err := m.conn.ExecCtx(context.Background(),
-		"INSERT INTO assignment_questions (assignment_id, type, stem, options, answer, score) VALUES (?,?,?,?,?,?)",
-		q.AssignmentId, q.Type, q.Stem, q.Options, q.Answer, q.Score)
+		"INSERT INTO assignment_questions (assignment_id, type, stem, options, answer, score, order_num, required) VALUES (?,?,?,?,?,?,?,?)",
+		q.AssignmentId, q.Type, q.Stem, q.Options, q.Answer, q.Score, q.OrderNum, q.Required)
 	if err != nil {
 		return 0, err
 	}
@@ -553,9 +584,84 @@ func (m *ClassModel) InsertQuestion(q *QuestionRow) (int64, error) {
 func (m *ClassModel) ListQuestions(assignmentId int64) ([]*QuestionRow, error) {
 	var rows []*QuestionRow
 	err := m.conn.QueryRowsCtx(context.Background(), &rows,
-		"SELECT id, assignment_id, type, stem, options, answer, score FROM assignment_questions WHERE assignment_id=? ORDER BY id",
+		"SELECT id, assignment_id, type, stem, options, answer, score, order_num, required FROM assignment_questions WHERE assignment_id=? ORDER BY order_num ASC, id ASC",
 		assignmentId)
 	return rows, err
+}
+
+// UpdateAssignmentQuestion 编辑作业单题。
+func (m *ClassModel) UpdateAssignmentQuestion(q *QuestionRow) error {
+	_, err := m.conn.ExecCtx(context.Background(),
+		`UPDATE assignment_questions SET type=?, stem=?, options=?, answer=?, score=?, required=? WHERE id=? AND assignment_id=?`,
+		q.Type, q.Stem, q.Options, q.Answer, q.Score, q.Required, q.Id, q.AssignmentId)
+	return err
+}
+
+// DeleteAssignmentQuestion 删作业题。
+func (m *ClassModel) DeleteAssignmentQuestion(qid int64) error {
+	_, err := m.conn.ExecCtx(context.Background(), "DELETE FROM assignment_questions WHERE id=?", qid)
+	return err
+}
+
+// GetAssignmentQuestion 取作业单题。
+func (m *ClassModel) GetAssignmentQuestion(qid int64) (*QuestionRow, error) {
+	var q QuestionRow
+	err := m.conn.QueryRowCtx(context.Background(), &q,
+		"SELECT id, assignment_id, type, stem, options, answer, score, order_num, required FROM assignment_questions WHERE id=?", qid)
+	if err != nil {
+		return nil, err
+	}
+	return &q, nil
+}
+
+// SortAssignmentQuestions 批量改排序。
+func (m *ClassModel) SortAssignmentQuestions(assignmentId int64, order []int64) error {
+	return m.conn.TransactCtx(context.Background(), func(ctx context.Context, tx sqlx.Session) error {
+		for i, qid := range order {
+			if _, err := tx.ExecCtx(ctx,
+				"UPDATE assignment_questions SET order_num=? WHERE id=? AND assignment_id=?", i+1, qid, assignmentId); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// MaxAssignmentQuestionOrder 查某作业下当前最大 order_num。
+func (m *ClassModel) MaxAssignmentQuestionOrder(assignmentId int64) (int, error) {
+	var n int
+	err := m.conn.QueryRowCtx(context.Background(), &n,
+		"SELECT COALESCE(MAX(order_num),0) FROM assignment_questions WHERE assignment_id=?", assignmentId)
+	return n, err
+}
+
+// UpdateAssignment 更新作业基本信息。
+func (m *ClassModel) UpdateAssignment(a *AssignmentRow) error {
+	_, err := m.conn.ExecCtx(context.Background(),
+		`UPDATE assignments SET title=?, description=?, deadline=?, total_score=?, allow_late=?, late_deadline=? WHERE id=?`,
+		a.Title, a.Description, a.Deadline, a.TotalScore, a.AllowLate, a.LateDeadline, a.Id)
+	return err
+}
+
+// ListAssignmentsPaged 作业列表分页。
+func (m *ClassModel) ListAssignmentsPaged(classId int64, page, size int) ([]*AssignmentRow, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 || size > 100 {
+		size = 20
+	}
+	offset := (page - 1) * size
+	var total int64
+	if err := m.conn.QueryRowCtx(context.Background(), &total,
+		"SELECT COUNT(*) FROM assignments WHERE class_id=?", classId); err != nil {
+		return nil, 0, err
+	}
+	var rows []*AssignmentRow
+	err := m.conn.QueryRowsCtx(context.Background(), &rows,
+		"SELECT id, class_id, course_id, title, description, deadline, total_score, allow_late, late_deadline, publisher_id, created_at FROM assignments WHERE class_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+		classId, size, offset)
+	return rows, total, err
 }
 
 // CountQuestions 统计某作业客观题总分（用于自动判分参考）
