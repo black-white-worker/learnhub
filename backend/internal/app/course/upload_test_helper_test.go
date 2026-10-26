@@ -84,6 +84,17 @@ func (f *fakeOss) ListObjects(ctx context.Context, prefix string) ([]oss.ObjectI
 	return infos, nil
 }
 
+// 以下方法在测试里不被调用，给空实现让接口满足编译。
+
+func (f *fakeOss) PresignPutObject(ctx context.Context, objectName, contentType string, expiry time.Duration) (string, error) {
+	return "http://fake-presign/" + objectName, nil
+}
+
+func (f *fakeOss) ComposeObjects(ctx context.Context, dst string, srcs []string) (string, error) {
+	f.objects[dst] = "http://fake-minio:9000/learningplatform/" + dst
+	return f.objects[dst], nil
+}
+
 // backdate 把某个对象的上传时间往前拨，用于孤儿清理测试制造"旧对象"。
 func (f *fakeOss) backdate(objectName string, age time.Duration) {
 	if _, ok := f.createdAt[objectName]; ok {

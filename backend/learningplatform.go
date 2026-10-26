@@ -10,6 +10,7 @@ import (
 	"learningplatform/internal/app/course"
 	"learningplatform/internal/config"
 	"learningplatform/internal/handler"
+	"learningplatform/internal/middleware"
 	"learningplatform/internal/svc"
 
 	"github.com/zeromicro/go-zero/core/conf"
@@ -27,6 +28,9 @@ func main() {
 
 	server := rest.MustNewServer(c.RestConf)
 	defer server.Stop()
+
+	// 全局中间件：注入 X-Request-ID，串起一次请求的所有日志
+	server.Use(middleware.RequestIDMiddleware)
 
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)

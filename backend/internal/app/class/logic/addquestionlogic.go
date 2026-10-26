@@ -18,6 +18,8 @@ func NewAddQuestionLogic(ctx context.Context, svcCtx *svc.ServiceContext) *AddQu
 	return &AddQuestionLogic{ctx: ctx, svcCtx: svcCtx}
 }
 
+// AddQuestion 老师给作业加题（空题卡，对标腾讯问卷）。
+// 允许题干先空着，前端点题型栏追加一张空卡，再即时编辑。
 func (l *AddQuestionLogic) AddQuestion(aid int64, req *class.AddQuestionReq, cu *class.CtxUser) (*class.AddQuestionResp, error) {
 	a, err := l.svcCtx.ClassStore.GetAssignment(aid)
 	if err != nil {
@@ -26,21 +28,26 @@ func (l *AddQuestionLogic) AddQuestion(aid int64, req *class.AddQuestionReq, cu 
 	if be := class.RequireTeacher(l.svcCtx, a.ClassId, cu); be != nil {
 		return nil, be
 	}
-	if req.Stem == "" {
-		return nil, &class.BizError{Code: http.StatusBadRequest, Msg: "题干不能为空"}
+	qt := req.Type
+	if qt == "" {
+		qt = "essay"
 	}
-	// 题型默认 single；essay 主观题不需要标准答案，老师手批
-	if req.Type == "" {
-		req.Type = "single"
+	allowed := map[string]bool{"single": true, "multiple": true, "fill": true, "essay": true, "fileupload": true}
+	if !allowed[qt] {
+		return nil, &class.BizError{Code: http.StatusBadRequest, Msg: "题型不支持"}
 	}
-	if req.Type != "essay" && req.Answer == "" {
-		return nil, &class.BizError{Code: http.StatusBadRequest, Msg: "选择题/判断题答案不能为空"}
+	score := req.Score
+	if score <= 0 {
+		score = 5
 	}
-	if req.Score <= 0 {
-		req.Score = 5
+	required := 1
+	if req.Required != nil {
+		required = *req.Required
 	}
+	maxOrder, _ := l.svcCtx.ClassStore.MaxAssignmentQuestionOrder(aid)
 	id, err := l.svcCtx.ClassStore.InsertQuestion(&model.QuestionRow{
-		AssignmentId: aid, Type: req.Type, Stem: req.Stem, Options: req.Options, Answer: req.Answer, Score: req.Score,
+		AssignmentId: aid, Type: qt, Stem: req.Stem, Options: req.Options, Answer: req.Answer,
+		Score: score, OrderNum: maxOrder + 1, Required: required,
 	})
 	if err != nil {
 		return nil, err

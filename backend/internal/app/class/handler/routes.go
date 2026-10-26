@@ -37,7 +37,12 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 		{Method: http.MethodPost, Path: "/api/class/:id/assignment", Handler: createAssignmentHandler(serverCtx)},
 		{Method: http.MethodGet, Path: "/api/class/:id/assignments", Handler: listAssignmentsHandler(serverCtx)},
 		{Method: http.MethodGet, Path: "/api/assignment/:aid", Handler: assignmentDetailHandler(serverCtx)},
-		{Method: http.MethodPost, Path: "/api/assignment/:aid/questions", Handler: addQuestionHandler(serverCtx)},
+		{Method: http.MethodPut, Path: "/api/assignment/:aid", Handler: updateAssignmentHandler(serverCtx)},
+		{Method: http.MethodPost, Path: "/api/assignment/:aid/question", Handler: addQuestionHandler(serverCtx)},
+		{Method: http.MethodPost, Path: "/api/assignment/:aid/questions", Handler: addQuestionHandler(serverCtx)}, // 兼容旧
+		{Method: http.MethodPut, Path: "/api/assignment/question/:qid", Handler: updateAssignmentQuestionHandler(serverCtx)},
+		{Method: http.MethodDelete, Path: "/api/assignment/question/:qid", Handler: deleteAssignmentQuestionHandler(serverCtx)},
+		{Method: http.MethodPut, Path: "/api/assignment/question/:qid/sort", Handler: sortAssignmentQuestionsHandler(serverCtx)},
 		{Method: http.MethodPost, Path: "/api/assignment/:aid/submit", Handler: submitAssignmentHandler(serverCtx)},
 		{Method: http.MethodPost, Path: "/api/assignment/upload", Handler: uploadAssignmentFileHandler(serverCtx)},
 		{Method: http.MethodGet, Path: "/api/assignment/:aid/submissions", Handler: listSubmissionsHandler(serverCtx)},
@@ -54,6 +59,7 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 		{Method: http.MethodPost, Path: "/api/class/:id/signin/start", Handler: startSigninHandler(serverCtx)},
 		{Method: http.MethodGet, Path: "/api/class/:id/signin", Handler: getActiveSigninHandler(serverCtx)},
 		{Method: http.MethodPost, Path: "/api/class/:id/signin/do", Handler: doSigninHandler(serverCtx)},
+		{Method: http.MethodPost, Path: "/api/class/:id/signin/end", Handler: EndSigninHandler(serverCtx)},
 		{Method: http.MethodGet, Path: "/api/class/:id/signin/records", Handler: listSigninRecordsHandler(serverCtx)},
 		{Method: http.MethodGet, Path: "/api/class/:id/signin/history", Handler: listSigninsHistoryHandler(serverCtx)},
 

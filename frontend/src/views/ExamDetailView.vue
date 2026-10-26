@@ -1,8 +1,10 @@
 <script setup>
+// 考试详情页：老师端用 QuestionEditor 出题器（三栏），学生端用问卷式大卡片+答题卡。
 import { ref, onMounted, computed, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
+import QuestionEditor from '../components/QuestionEditor.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -13,32 +15,33 @@ const auth = { headers: { Authorization: 'Bearer ' + token } }
 const detail = ref(null)
 const answers = ref({})
 const submitting = ref(false)
+const currentQ = ref(0) // 学生端当前题号
+const showAnswerSheet = ref(false)
 
-// 老师端：添加题目表单
-const newQuestion = ref({ type: 'single', stem: '', optionsText: '', answer: '', score: 5 })
-// 老师端：批阅表单
-const gradeForm = ref({}) // { submissionId: {teacherScore, comment} }
+// 老师端批阅表单
+const gradeForm = ref({})
 
 const timer = ref(null)
 const remainSeconds = ref(0)
 
 const isTeacher = computed(() => detail.value?.myRole === 'teacher' || detail.value?.myRole === 'admin')
 
-// 把 "A,C" 这种字符串拆成 ["A","C"] 给 checkbox-group 用
-function parseMulti(val) {
-  if (!val) return []
-  return String(val).split(',').map(s => s.trim()).filter(Boolean)
-}
+const studentQuestions = computed(() => {
+  if (!detail.value?.questions) return []
+  return detail.value.questions.map(q => {
+    let options = []
+    try { options = q.options ? JSON.parse(q.options) : [] } catch (e) {}
+    return { ...q, options }
+  })
+})
 
 async function load() {
   try {
     const r = await axios.get(`/api/exam/${examId}`, auth)
     detail.value = r.data
-    // 学生已交卷：回填答案
     if (r.data.mySubmission?.answers) {
       try { answers.value = JSON.parse(r.data.mySubmission.answers) } catch (e) { answers.value = {} }
     }
-    // 老师端：初始化批阅表单
     if (r.data.submissions) {
       const gf = {}
       r.data.submissions.forEach(s => {
@@ -53,7 +56,6 @@ async function load() {
 }
 
 function startCountdown() {
-  // 简单倒计时：从 endAt 倒推
   if (!detail.value?.exam?.endAt) return
   const end = new Date(detail.value.exam.endAt).getTime()
   const tick = () => {
@@ -62,7 +64,6 @@ function startCountdown() {
   tick()
   timer.value = setInterval(tick, 1000)
 }
-
 onUnmounted(() => clearInterval(timer.value))
 
 function fmtRemain() {
@@ -71,18 +72,32 @@ function fmtRemain() {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
+// 学生端：判断某题是否已答
+function isAnswered(q) {
+  const v = answers.value[q.id]
+  if (v === undefined || v === null || v === '') return false
+  if (Array.isArray(v)) return v.length > 0
+  return true
+}
+
+const unansweredCount = computed(() => {
+  return studentQuestions.value.filter(q => !isAnswered(q)).length
+})
+
 async function submitExam() {
-  try {
-    await ElMessageBox.confirm('确定交卷吗？交卷后不能修改', '提示', { type: 'warning' })
-  } catch { return }
+  if (unansweredCount.value > 0) {
+    try {
+      await ElMessageBox.confirm(`还有 ${unansweredCount.value} 题未作答，确定提交吗？`, '提示', { type: 'warning' })
+    } catch { return }
+  } else {
+    try {
+      await ElMessageBox.confirm('确定交卷吗？交卷后不能修改', '提示', { type: 'warning' })
+    } catch { return }
+  }
   submitting.value = true
   try {
     const r = await axios.post(`/api/exam/${examId}/submit`, { answers: answers.value }, auth)
-    if (r.data?.autoScore !== undefined) {
-      ElMessage.success(`交卷成功，客观题得分：${r.data.autoScore}`)
-    } else {
-      ElMessage.success('交卷成功')
-    }
+    ElMessage.success(r.data.autoScore !== undefined ? `交卷成功，客观题得分：${r.data.autoScore}` : '交卷成功')
     load()
   } catch (e) {
     ElMessage.error(e.response?.data?.message || '交卷失败')
@@ -91,39 +106,11 @@ async function submitExam() {
   }
 }
 
-async function addQuestion() {
-  if (!newQuestion.value.stem.trim()) {
-    ElMessage.warning('题干不能为空')
-    return
-  }
-  try {
-    let options = ''
-    if (newQuestion.value.type === 'single') {
-      const arr = newQuestion.value.optionsText.split(',').map(s => s.trim()).filter(Boolean)
-      if (arr.length < 2) { ElMessage.warning('单选题至少两个选项'); return }
-      options = JSON.stringify(arr)
-    }
-    await axios.post(`/api/exam/${examId}/questions`, {
-      type: newQuestion.value.type,
-      stem: newQuestion.value.stem,
-      options,
-      answer: newQuestion.value.answer,
-      score: newQuestion.value.score,
-    }, auth)
-    ElMessage.success('题目已添加')
-    newQuestion.value = { type: 'single', stem: '', optionsText: '', answer: '', score: 5 }
-    load()
-  } catch (e) {
-    ElMessage.error(e.response?.data?.message || '添加失败')
-  }
-}
-
 async function gradeSubmission(submissionId) {
   const g = gradeForm.value[submissionId]
   try {
     await axios.post(`/api/exam/submission/${submissionId}/grade`, {
-      teacherScore: g.teacherScore,
-      comment: g.comment,
+      teacherScore: g.teacherScore, comment: g.comment,
     }, auth)
     ElMessage.success('批改成功')
     load()
@@ -137,74 +124,38 @@ onMounted(load)
 
 <template>
   <div class="exam-detail" v-if="detail">
-    <el-button @click="$router.push('/exams')" size="small">← 返回考试中心</el-button>
-    <h1>{{ detail.exam.title }}</h1>
-    <p class="sub">
-      总分：{{ detail.exam.totalScore }} · 时长：{{ detail.exam.durationMinutes }}分钟 ·
-      开始：{{ detail.exam.startAt?.replace('T', ' ').slice(0, 16) }} ·
-      结束：{{ detail.exam.endAt?.replace('T', ' ').slice(0, 16) }}
-      <el-tag v-if="!isTeacher" style="margin-left:12px">剩余时间：{{ fmtRemain() }}</el-tag>
-    </p>
-
-    <!-- 老师端：题目管理 -->
+    <!-- 老师端：三栏出题器 -->
     <template v-if="isTeacher">
-      <el-divider />
-      <h3>题目管理（共 {{ detail.questions?.length || 0 }} 题）</h3>
-
-      <!-- 已添加题目列表（问题6：看得到） -->
-      <el-table v-if="detail.questions?.length" :data="detail.questions" size="small" style="margin-bottom:16px">
-        <el-table-column type="index" label="#" width="50" />
-        <el-table-column prop="stem" label="题干" min-width="200" />
-        <el-table-column label="类型" width="90">
-          <template #default="{ row }">
-            <el-tag size="small" :type="{ single:'info', multiple:'warning', judge:'success', essay:'' }[row.type] || 'info'">
-              {{ { single:'单选', multiple:'多选', judge:'判断', essay:'主观' }[row.type] || row.type }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="选项" min-width="160">
-          <template #default="{ row }">
-            <span v-if="row.options">{{ JSON.parse(row.options).map((o,i)=>'ABCD'[i]+'.'+o).join('  ') }}</span>
-            <span v-else>-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="答案" width="120">
-          <template #default="{ row }">
-            <span v-if="row.type==='judge'">{{ row.answer==='true'?'对':'错' }}</span>
-            <span v-else>{{ row.answer }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="score" label="分值" width="70" />
-      </el-table>
-
-      <!-- 添加题目表单（问题6：参考腾讯问卷的规范出题） -->
-      <el-alert type="info" :closable="false" title="添加题目：先选题型，再填题干、选项和答案" style="margin-bottom:10px" />
-      <div class="add-q-form">
-        <el-select v-model="newQuestion.type" style="width:110px">
-          <el-option label="单选题" value="single" />
-          <el-option label="多选题" value="multiple" />
-          <el-option label="判断题" value="judge" />
-          <el-option label="主观题" value="essay" />
-        </el-select>
-        <el-input v-model="newQuestion.stem" placeholder="题干" style="width:220px" />
-        <el-input v-if="(newQuestion.type==='single'||newQuestion.type==='multiple')" v-model="newQuestion.optionsText" placeholder='选项用逗号分隔' style="width:220px" />
-        <el-radio-group v-if="newQuestion.type==='judge'" v-model="newQuestion.answer">
-          <el-radio value="true">对</el-radio>
-          <el-radio value="false">错</el-radio>
-        </el-radio-group>
-        <el-input v-else-if="newQuestion.type!=='essay'" v-model="newQuestion.answer" :placeholder="newQuestion.type==='multiple'?'答案字母逗号分隔，如 A,C':'答案(A/B/C/D)'" style="width:160px" />
-        <el-input-number v-model="newQuestion.score" :min="1" :max="100" style="width:100px" />
-        <el-button size="small" type="primary" @click="addQuestion">添加</el-button>
+      <div class="teacher-header">
+        <el-button @click="$router.back()" size="small">← 返回</el-button>
+        <h2 style="margin:0">{{ detail.exam.title }}</h2>
       </div>
+      <QuestionEditor
+        module="exam"
+        :resource-id="examId"
+        :initial-questions="detail.questions"
+        :initial-settings="{
+          title: detail.exam.title,
+          description: detail.exam.description,
+          startAt: (detail.exam.startAt || '').replace(' ', 'T').slice(0, 16),
+          endAt: (detail.exam.endAt || '').replace(' ', 'T').slice(0, 16),
+          durationMinutes: detail.exam.durationMinutes,
+          totalScore: detail.exam.totalScore,
+          allowLate: detail.exam.allowLate,
+          tabLimit: detail.exam.tabLimit,
+        }"
+        :available-types="['single','multiple','judge','fill','essay']"
+      />
 
-      <h3 style="margin-top:20px">学生提交（{{ detail.submissions?.length || 0 }} 人）</h3>
-      <el-table :data="detail.submissions" size="small" max-height="400">
+      <!-- 老师端：提交列表 -->
+      <el-divider />
+      <h3 style="margin-left:12px">学生提交（{{ detail.submissions?.length || 0 }} 人）</h3>
+      <el-table :data="detail.submissions" size="small" style="margin:0 12px" max-height="400">
         <el-table-column prop="username" label="学生" width="100" />
         <el-table-column prop="autoScore" label="客观题分" width="90" />
-        <el-table-column label="主观题作答" min-width="200">
+        <el-table-column label="作答" min-width="200">
           <template #default="{ row }">
-            <span v-if="row.answers">{{ row.answers }}</span>
-            <span v-else>-</span>
+            <span>{{ row.answers }}</span>
           </template>
         </el-table-column>
         <el-table-column label="手打分" width="140">
@@ -225,39 +176,104 @@ onMounted(load)
       </el-table>
     </template>
 
-    <!-- 学生端：作答 -->
+    <!-- 学生端：问卷式大卡片 -->
     <template v-else>
-      <el-divider />
+      <div class="student-topbar">
+        <el-button @click="$router.back()" size="small">← 返回</el-button>
+        <h2 style="margin:0">{{ detail.exam.title }}</h2>
+        <el-tag type="danger" v-if="!detail.mySubmission">剩余时间：{{ fmtRemain() }}</el-tag>
+        <el-button size="small" @click="showAnswerSheet = true">答题卡</el-button>
+      </div>
+
       <div v-if="detail.mySubmission" class="already-submitted">
         <el-alert type="success" :closable="false" :title="`你已交卷，客观题得分：${detail.mySubmission.autoScore ?? '待老师批主观题'}`" />
       </div>
-      <div v-for="(q, i) in detail.questions" :key="q.id" class="q-block">
-        <b>{{ i + 1 }}. {{ q.stem }}（{{ q.score }}分）</b>
-        <el-radio-group v-if="q.type === 'single'" v-model="answers[q.id]" style="margin-top:6px">
-          <el-radio v-for="(opt, oi) in (q.options ? JSON.parse(q.options) : [])" :key="oi" :value="'ABCD'[oi]">
-            {{ 'ABCD'[oi] }}. {{ opt }}
-          </el-radio>
-        </el-radio-group>
-        <el-checkbox-group v-else-if="q.type === 'multiple'" :model-value="parseMulti(answers[q.id])" @change="val => answers[q.id] = val.sort().join(',')" style="margin-top:6px">
-          <el-checkbox v-for="(opt, oi) in (q.options ? JSON.parse(q.options) : [])" :key="oi" :value="'ABCD'[oi]">
-            {{ 'ABCD'[oi] }}. {{ opt }}
-          </el-checkbox>
-        </el-checkbox-group>
-        <el-radio-group v-else-if="q.type === 'judge'" v-model="answers[q.id]" style="margin-top:6px">
-          <el-radio value="true">对</el-radio>
-          <el-radio value="false">错</el-radio>
-        </el-radio-group>
-        <el-input v-else v-model="answers[q.id]" type="textarea" :rows="3" placeholder="请作答" style="margin-top:6px" />
+
+      <div v-else class="student-area">
+        <!-- 当前题 -->
+        <div v-if="studentQuestions.length" class="q-card">
+          <div class="q-head">
+            <span class="q-no">{{ currentQ + 1 }} / {{ studentQuestions.length }}</span>
+            <span v-if="studentQuestions[currentQ].required" class="q-star">*</span>
+            <span class="q-score">{{ studentQuestions[currentQ].score }}分</span>
+          </div>
+          <div class="q-stem">{{ studentQuestions[currentQ].stem }}</div>
+
+          <el-radio-group v-if="studentQuestions[currentQ].type === 'single'" v-model="answers[studentQuestions[currentQ].id]" class="q-options">
+            <el-radio v-for="(opt, oi) in studentQuestions[currentQ].options" :key="oi" :value="'ABCD'[oi]" class="q-option-btn">
+              <b>{{ 'ABCD'[oi] }}.</b> {{ opt }}
+            </el-radio>
+          </el-radio-group>
+
+          <el-checkbox-group v-else-if="studentQuestions[currentQ].type === 'multiple'"
+            :model-value="answers[studentQuestions[currentQ].id] ? answers[studentQuestions[currentQ].id].split(',').filter(Boolean) : []"
+            @change="val => answers[studentQuestions[currentQ].id] = val.sort().join(',')"
+            class="q-options">
+            <el-checkbox v-for="(opt, oi) in studentQuestions[currentQ].options" :key="oi" :value="'ABCD'[oi]" class="q-option-btn">
+              <b>{{ 'ABCD'[oi] }}.</b> {{ opt }}
+            </el-checkbox>
+          </el-checkbox-group>
+
+          <el-radio-group v-else-if="studentQuestions[currentQ].type === 'judge'" v-model="answers[studentQuestions[currentQ].id]" class="q-options">
+            <el-radio value="true" class="q-option-btn">✓ 对</el-radio>
+            <el-radio value="false" class="q-option-btn">✗ 错</el-radio>
+          </el-radio-group>
+
+          <el-input v-else v-model="answers[studentQuestions[currentQ].id]" type="textarea" :rows="6"
+            :placeholder="studentQuestions[currentQ].type === 'fill' ? '请填写答案' : '请输入你的作答...'" />
+        </div>
+
+        <!-- 底部导航 -->
+        <div class="q-nav">
+          <el-button :disabled="currentQ === 0" @click="currentQ--">上一题</el-button>
+          <template v-if="currentQ < studentQuestions.length - 1">
+            <el-button type="primary" @click="currentQ++">下一题</el-button>
+          </template>
+          <template v-else>
+            <el-button type="success" :loading="submitting" @click="submitExam">提交试卷</el-button>
+          </template>
+        </div>
       </div>
-      <el-button v-if="!detail.mySubmission" type="primary" :loading="submitting" style="margin-top:16px" @click="submitExam">交卷</el-button>
+
+      <!-- 答题卡弹窗 -->
+      <el-dialog v-model="showAnswerSheet" title="答题卡" width="320px">
+        <div class="sheet-grid">
+          <div
+            v-for="(q, i) in studentQuestions"
+            :key="q.id"
+            class="sheet-cell"
+            :class="{ answered: isAnswered(q), current: i === currentQ }"
+            @click="currentQ = i; showAnswerSheet = false"
+          >
+            {{ i + 1 }}
+          </div>
+        </div>
+        <div style="margin-top:12px;color:#666;font-size:13px">
+          已答 {{ studentQuestions.length - unansweredCount }} / 共 {{ studentQuestions.length }} 题
+          <span v-if="unansweredCount" style="color:#f56c6c">，剩 {{ unansweredCount }} 题未答</span>
+        </div>
+      </el-dialog>
     </template>
   </div>
 </template>
 
 <style scoped>
-.exam-detail { padding: 24px; max-width: 900px; margin: 0 auto; }
-.sub { color: #666; }
-.add-q-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
-.q-block { padding: 12px 0; border-bottom: 1px dashed #eee; }
-.already-submitted { margin-bottom: 16px; }
+.exam-detail { padding: 0; }
+.teacher-header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #fff; border-bottom: 1px solid #eee; }
+.student-topbar { display: flex; align-items: center; gap: 12px; padding: 14px 24px; background: #fff; border-bottom: 1px solid #eee; position: sticky; top: 0; z-index: 10; }
+.student-area { max-width: 800px; margin: 24px auto; padding: 0 16px; }
+.already-submitted { margin: 16px; }
+.q-card { background: #fff; border-radius: 12px; padding: 28px; box-shadow: 0 2px 12px rgba(0,0,0,.06); min-height: 360px; }
+.q-head { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+.q-no { font-size: 18px; font-weight: 700; color: #409eff; }
+.q-star { color: #f56c6c; font-size: 18px; }
+.q-score { margin-left: auto; color: #999; font-size: 13px; }
+.q-stem { font-size: 17px; line-height: 1.7; margin-bottom: 20px; }
+.q-options { display: flex; flex-direction: column; gap: 10px; }
+.q-option-btn { display: flex; align-items: center; padding: 12px 16px; border: 1px solid #e4e7ed; border-radius: 8px; margin-right: 0; white-space: normal; height: auto; }
+.q-nav { display: flex; justify-content: space-between; margin-top: 20px; }
+.sheet-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.sheet-cell { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; background: #f0f2f5; border-radius: 6px; cursor: pointer; font-size: 14px; }
+.sheet-cell.answered { background: #67c23a; color: #fff; }
+.sheet-cell.current { outline: 2px solid #409eff; }
 </style>

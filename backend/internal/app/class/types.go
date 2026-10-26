@@ -94,16 +94,40 @@ type AssignmentDetailResp struct {
 }
 
 type AddQuestionReq struct {
-	Type    string `json:"type" form:"type,optional"`
-	Stem    string `json:"stem"`
-	// Options 选择题为 JSON 数组字符串，判断题为空，故可选
-	Options string `json:"options" form:"options,optional"`
-	Answer  string `json:"answer"`
-	// Score 可选，<=0 时 logic 层默认 5
-	Score int `json:"score" form:"score,optional"`
+	Type     string `json:"type" form:"type,optional"`
+	Stem     string `json:"stem"`
+	Options  string `json:"options" form:"options,optional"`
+	Answer   string `json:"answer" form:"answer,optional"`
+	Score    int    `json:"score" form:"score,optional"`
+	Required *int   `json:"required" form:"required,optional"`
 }
 type AddQuestionResp struct {
 	Id int64 `json:"id"`
+}
+
+// UpdateAssignmentReq 更新作业基本信息
+type UpdateAssignmentReq struct {
+	Title        string `json:"title"`
+	Description  string `json:"description" form:"description,optional"`
+	Deadline     string `json:"deadline" form:"deadline,optional"`
+	LateDeadline string `json:"lateDeadline" form:"lateDeadline,optional"`
+	TotalScore   int    `json:"totalScore" form:"totalScore,optional"`
+	AllowLate    int    `json:"allowLate" form:"allowLate,optional"`
+}
+
+// UpdateAssignmentQuestionReq 编辑作业单题
+type UpdateAssignmentQuestionReq struct {
+	Type     string `json:"type" form:"type,optional"`
+	Stem     string `json:"stem"`
+	Options  string `json:"options" form:"options,optional"`
+	Answer   string `json:"answer" form:"answer,optional"`
+	Score    int    `json:"score" form:"score,optional"`
+	Required *int   `json:"required" form:"required,optional"`
+}
+
+// SortAssignmentQuestionsReq 拖拽排序
+type SortAssignmentQuestionsReq struct {
+	Order []int64 `json:"order"`
 }
 
 type SubmitAssignmentReq struct {

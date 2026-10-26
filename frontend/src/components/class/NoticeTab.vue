@@ -24,7 +24,16 @@
         <p class="notice-snippet">{{ n.content }}</p>
         <div class="notice-footer">
           <small>{{ n.createdAt }}</small>
-          <span v-if="isTeacher" class="read-stat">已读 {{ n.readCount }}</span>
+          <span class="notice-footer-right">
+            <span v-if="isTeacher" class="read-stat">已读 {{ n.readCount }}</span>
+            <el-button
+              v-if="isTeacher"
+              type="danger"
+              size="small"
+              link
+              @click.stop="deleteNotice(n)"
+            >删除</el-button>
+          </span>
         </div>
       </el-card>
     </div>
@@ -41,7 +50,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
 
 const props = defineProps({
@@ -59,7 +68,8 @@ const current = ref(null)
 
 async function loadNotices() {
   const r = await axios.get(`/api/class/${props.classId}/announcements`, auth)
-  notices.value = r.data || []
+  // 后端返回分页结构 {list,total,...}，兼容旧版直接返回数组
+  notices.value = r.data?.list || (Array.isArray(r.data) ? r.data : [])
 }
 
 async function postNotice() {
@@ -88,6 +98,21 @@ async function openNotice(n) {
   } catch (e) {}
 }
 
+async function deleteNotice(n) {
+  try {
+    await ElMessageBox.confirm(`确定删除公告《${n.title}》吗？`, '删除公告', {
+      type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消',
+    })
+  } catch { return }
+  try {
+    await axios.delete(`/api/class/announcement/${n.id}`, auth)
+    ElMessage.success('公告已删除')
+    loadNotices()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.message || '删除失败')
+  }
+}
+
 onMounted(loadNotices)
 defineExpose({ reload: loadNotices })
 </script>
@@ -103,7 +128,8 @@ defineExpose({ reload: loadNotices })
   color: #6b7280; font-size: 13px; margin: 8px 0 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.notice-footer { display: flex; justify-content: space-between; margin-top: 8px; }
+.notice-footer { display: flex; justify-content: space-between; margin-top: 8px; align-items: center; }
+.notice-footer-right { display: flex; align-items: center; gap: 8px; }
 .read-stat { color: #909399; font-size: 12px; }
 .notice-full-content { white-space: pre-wrap; line-height: 1.7; color: #374151; }
 </style>

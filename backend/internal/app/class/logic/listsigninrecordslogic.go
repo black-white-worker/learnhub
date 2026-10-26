@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"learningplatform/internal/app/class"
+	"learningplatform/internal/model"
 	"learningplatform/internal/svc"
 )
 
@@ -18,15 +19,21 @@ func NewListSigninRecordsLogic(ctx context.Context, svcCtx *svc.ServiceContext) 
 	return &ListSigninRecordsLogic{ctx: ctx, svcCtx: svcCtx}
 }
 
-// ListSigninRecords 返回当前进行中签到的已签/未签名单（问题7）。
-// 已签：直接查 signin_records；未签：班级学生 minus 已签。
-func (l *ListSigninRecordsLogic) ListSigninRecords(classId int64, cu *class.CtxUser) (interface{}, error) {
+// ListSigninRecords 返回签到的已签/未签名单。
+// signinId 可选：传了就查指定签到（历史签到详情），没传就查当前进行中的。
+func (l *ListSigninRecordsLogic) ListSigninRecords(classId int64, signinId int64, cu *class.CtxUser) (interface{}, error) {
 	if be := class.RequireTeacher(l.svcCtx, classId, cu); be != nil {
 		return nil, be
 	}
-	s, err := l.svcCtx.ClassStore.GetActiveSignin(classId)
-	if err != nil {
-		return nil, &class.BizError{Code: http.StatusNotFound, Msg: "当前没有进行中的签到"}
+	var s *model.SigninRow
+	var err error
+	if signinId > 0 {
+		s, err = l.svcCtx.ClassStore.GetSignin(signinId)
+	} else {
+		s, err = l.svcCtx.ClassStore.GetActiveSignin(classId)
+	}
+	if err != nil || s == nil {
+		return nil, &class.BizError{Code: http.StatusNotFound, Msg: "签到不存在"}
 	}
 	signed, _ := l.svcCtx.ClassStore.ListSigninRecords(s.Id)
 	members, _ := l.svcCtx.ClassStore.ListMembers(classId)
@@ -35,7 +42,6 @@ func (l *ListSigninRecordsLogic) ListSigninRecords(classId int64, cu *class.CtxU
 	for _, r := range signed {
 		signedSet[r.UserId] = true
 	}
-	// 未签：班级里 role=student 且不在已签名单的
 	var unsigned []map[string]string
 	for _, m := range members {
 		if m.Role == "student" && !signedSet[m.UserId] {

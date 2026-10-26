@@ -4,11 +4,14 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"strconv"
+
+	"github.com/zeromicro/go-zero/core/logx"
+	"github.com/zeromicro/go-zero/rest/pathvar"
+	"github.com/zeromicro/go-zero/rest/httpx"
 
 	"learningplatform/internal/app/user"
 	"learningplatform/internal/svc"
-
-	"github.com/zeromicro/go-zero/rest/httpx"
 )
 
 // VideoNoteRow 视频笔记
@@ -70,8 +73,12 @@ func listNotesHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			httpx.WriteJson(w, 500, map[string]string{"message": "用户不存在"})
 			return
 		}
-		courseId := r.PathValue("courseId")
-		videoId := r.PathValue("videoId")
+		vars := pathvar.Vars(r)
+		courseId, _ := strconv.ParseInt(vars["courseId"], 10, 64)
+		videoId, _ := strconv.ParseInt(vars["videoId"], 10, 64)
+		if courseId == 0 || videoId == 0 {
+			logx.Errorf("note: bad path vars courseId=%q videoId=%q", vars["courseId"], vars["videoId"])
+		}
 		var rows []*VideoNoteRow
 		err = svcCtx.DB.QueryRowsCtx(r.Context(), &rows,
 			`SELECT id, user_id, course_id, video_id, timestamp_seconds AS timestampSeconds, content

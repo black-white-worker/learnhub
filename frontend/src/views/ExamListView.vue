@@ -35,7 +35,8 @@ async function load() {
     await Promise.all(classes.value.map(async (c) => {
       try {
         const re = await axios.get(`/api/class/${c.id}/exams`, auth)
-        map[c.id] = re.data || []
+        // 后端返回分页结构 {list,total,...}，兼容旧版直接返回数组
+        map[c.id] = re.data?.list || (Array.isArray(re.data) ? re.data : [])
       } catch (e) {
         map[c.id] = []
       }

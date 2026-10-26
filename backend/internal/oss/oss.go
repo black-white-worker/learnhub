@@ -40,14 +40,31 @@ type ObjectStorage interface {
 
 	// ListObjects 列出指定前缀下的所有对象（递归），供孤儿对象清理扫描。
 	ListObjects(ctx context.Context, prefix string) ([]ObjectInfo, error)
+
+	// PresignPutObject 生成一个前端可直接 PUT 的预签名 URL，
+	// 后端不中转字节流，适合封面/资源/视频分片直传。
+	PresignPutObject(ctx context.Context, objectName, contentType string, expiry time.Duration) (string, error)
+
+	// ComposeObjects 把多个已存在的源对象按顺序合并成 dst 对象。
+	// 分片上传场景：前端把每片 PUT 到 {objectName}.part1/.part2/...，
+	// 后端调 ComposeObjects 合并成最终视频，再清理 parts。
+	// 源对象除最后一片外必须 ≥ 5MB（MinIO/S3 限制）。
+	ComposeObjects(ctx context.Context, dst string, srcs []string) (url string, err error)
+}
+
+// MultipartPart 保留给前端直传场景记录 ETag（本项目用 ComposeObject 方案，暂未使用 ETag）。
+type MultipartPart struct {
+	PartNumber int    `json:"partNumber"`
+	ETag       string `json:"etag"`
 }
 
 // MinioStore 基于 MinIO 的实现。
 type MinioStore struct {
-	client         *minio.Client
-	bucket         string // 默认桶名
-	endpoint       string // 服务地址，用于拼 URL
-	publicEndpoint string // 对外访问地址（浏览器可访问），为空时退回 endpoint
+	client         *minio.Client // 实际连 MinIO 用（容器内 minio:9000）
+	presignClient  *minio.Client // 仅用于生成预签名 URL（用 publicEndpoint 算签名）
+	bucket         string        // 默认桶名
+	endpoint       string        // 服务地址，用于拼 URL
+	publicEndpoint string        // 对外访问地址（浏览器可访问），为空时退回 endpoint
 	useSSL         bool
 }
 
@@ -72,6 +89,20 @@ func NewMinioStore(cfg config.MinioConf) (*MinioStore, error) {
 	if m.publicEndpoint == "" {
 		m.publicEndpoint = m.endpoint
 	}
+
+	// presignClient 用 publicEndpoint 初始化：预签名 URL 的签名包含 host，
+	// 如果用容器内 minio:9000 签出来再硬改 host，浏览器 PUT 时 SignatureDoesNotMatch。
+	// 注意：minio-go 默认会发 GetBucketLocation 请求拿 region，容器内访问 127.0.0.1:9020
+	// 会被拒，所以显式指定 Region 跳过这个请求（MinIO 单节点不关心 region 值）。
+	presignClient, err := minio.New(m.publicEndpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
+		Secure: cfg.UseSSL,
+		Region: "us-east-1",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("创建 MinIO presign 客户端失败: %w", err)
+	}
+	m.presignClient = presignClient
 
 	// 启动时确保桶存在，省去手动创建
 	if err := m.ensureBucket(context.Background()); err != nil {
@@ -140,4 +171,48 @@ func (m *MinioStore) ListObjects(ctx context.Context, prefix string) ([]ObjectIn
 		infos = append(infos, ObjectInfo{Name: obj.Key, LastModified: obj.LastModified})
 	}
 	return infos, nil
+}
+
+// publicURL 用 PublicEndpoint 拼一个浏览器可直接访问的对象 URL。
+func (m *MinioStore) publicURL(objectName string) string {
+	scheme := "http"
+	if m.useSSL {
+		scheme = "https"
+	}
+	return fmt.Sprintf("%s://%s/%s/%s", scheme, m.publicEndpoint, m.bucket, objectName)
+}
+
+// PresignPutObject 生成前端直传预签名 URL。
+// 用 presignClient（publicEndpoint）签名，保证 URL 的 host 和签名一致，
+// 否则容器内用 minio:9000 签出来再改 host，浏览器 PUT 会 SignatureDoesNotMatch。
+func (m *MinioStore) PresignPutObject(ctx context.Context, objectName, contentType string, expiry time.Duration) (string, error) {
+	u, err := m.presignClient.PresignedPutObject(ctx, m.bucket, objectName, expiry)
+	if err != nil {
+		return "", fmt.Errorf("生成预签名上传 URL 失败: %w", err)
+	}
+	return u.String(), nil
+}
+
+// ComposeObjects 把多个已存在的源对象按顺序合并成 dst。
+// 分片上传场景：前端把每片 PUT 到 {objectName}.part1/.part2/...，
+// 后端调本方法合并成最终视频，再用 RemoveObject 清掉 parts。
+func (m *MinioStore) ComposeObjects(ctx context.Context, dst string, srcs []string) (string, error) {
+	if len(srcs) == 0 {
+		return "", fmt.Errorf("没有可合并的源对象")
+	}
+	srcOpts := make([]minio.CopySrcOptions, 0, len(srcs))
+	for _, s := range srcs {
+		srcOpts = append(srcOpts, minio.CopySrcOptions{
+			Bucket: m.bucket,
+			Object: s,
+		})
+	}
+	dstOpts := minio.CopyDestOptions{
+		Bucket: m.bucket,
+		Object: dst,
+	}
+	if _, err := m.client.ComposeObject(ctx, dstOpts, srcOpts...); err != nil {
+		return "", fmt.Errorf("合并对象失败: %w", err)
+	}
+	return m.publicURL(dst), nil
 }
