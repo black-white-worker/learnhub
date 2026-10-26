@@ -68,7 +68,8 @@ const current = ref(null)
 
 async function loadNotices() {
   const r = await axios.get(`/api/class/${props.classId}/announcements`, auth)
-  notices.value = r.data || []
+  // 后端返回分页结构 {list,total,...}，兼容旧版直接返回数组
+  notices.value = r.data?.list || (Array.isArray(r.data) ? r.data : [])
 }
 
 async function postNotice() {
