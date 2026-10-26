@@ -260,7 +260,8 @@ function parseMultiAns(val) {
 async function loadHw() {
   try {
     const r = await axios.get(`/api/class/${props.classId}/assignments`, auth)
-    assignments.value = r.data || []
+    // 兼容分页返回 {list,total,...} 和旧版直接返回数组
+    assignments.value = r.data?.list || (Array.isArray(r.data) ? r.data : [])
   } catch (e) {
     assignments.value = []
   }
