@@ -6,7 +6,7 @@ langchain==0.3.7
 langchain-community==0.3.5
 langchain-openai==0.2.7
 chromadb==0.5.11
-openai==1.51.0
+openai==1.54.0
 redis==5.1.1
 grpcio==1.66.2
 grpcio-tools==1.66.2
