@@ -1,0 +1,69 @@
+name: CI
+
+# 提交/PR 时跑：后端编译 + 单测（含 go vet），前端构建 + 前端单测。
+# 需要 MySQL/Redis 的集成测试在包内用 TestMain 探测依赖，连不上会整体 skip，
+# 所以这里不额外起容器也能绿；需要真跑集成测试时在本地 docker compose 起服务即可。
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  backend:
+    name: 后端（Go）
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: 依赖
+        run: go mod download
+
+      - name: 编译
+        run: go build ./...
+
+      - name: 静态检查
+        run: go vet ./...
+
+      - name: 单元测试
+        run: go test ./... -race -count=1
+
+      - name: 格式检查（只报告，不阻断）
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "以下文件未通过 gofmt："
+            echo "$out"
+          fi
+
+  frontend:
+    name: 前端（Vue）
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 依赖
+        run: npm ci
+
+      - name: 构建（顺带完成模板/语法校验）
+        run: npx vite build
+
+      - name: 单元测试
+        run: npm test

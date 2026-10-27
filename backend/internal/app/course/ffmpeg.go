@@ -39,9 +39,10 @@ func ffmpegPath() string {
 
 // buildFaststartArgs 拼装 ffmpeg 命令行参数（纯函数，便于单测）。
 // 关键参数与 videonest 对齐：
-//   -c:v libx264 -pix_fmt yuv420p   统一 H.264 编码，浏览器都能播
-//   -c:a aac                        音频统一 AAC
-//   -movflags +faststart            moov 前置，边下边播 / 可拖动
+//
+//	-c:v libx264 -pix_fmt yuv420p   统一 H.264 编码，浏览器都能播
+//	-c:a aac                        音频统一 AAC
+//	-movflags +faststart            moov 前置，边下边播 / 可拖动
 func buildFaststartArgs(src, dst string) []string {
 	return []string{
 		"-y", // 覆盖已存在的输出

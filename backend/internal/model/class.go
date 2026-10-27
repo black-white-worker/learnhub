@@ -261,17 +261,17 @@ func (m *ClassModel) GetAnnouncement(id int64) (*AnnouncementRow, error) {
 // ---- assignments 作业 ----
 
 type AssignmentRow struct {
-	Id          int64        `db:"id" json:"id"`
-	ClassId     int64        `db:"class_id" json:"classId"`
-	CourseId    int64        `db:"course_id" json:"courseId"`
-	Title       string       `db:"title" json:"title"`
-	Description string       `db:"description" json:"description"`
-	Deadline    sql.NullTime `db:"deadline" json:"-"` // 用 MarshalJSON 自定义输出，避免暴露 {Time,Valid} 内部结构
-	TotalScore  int          `db:"total_score" json:"totalScore"`
-	AllowLate   int          `db:"allow_late" json:"allowLate"`
+	Id           int64        `db:"id" json:"id"`
+	ClassId      int64        `db:"class_id" json:"classId"`
+	CourseId     int64        `db:"course_id" json:"courseId"`
+	Title        string       `db:"title" json:"title"`
+	Description  string       `db:"description" json:"description"`
+	Deadline     sql.NullTime `db:"deadline" json:"-"` // 用 MarshalJSON 自定义输出，避免暴露 {Time,Valid} 内部结构
+	TotalScore   int          `db:"total_score" json:"totalScore"`
+	AllowLate    int          `db:"allow_late" json:"allowLate"`
 	LateDeadline sql.NullTime `db:"late_deadline" json:"-"`
-	PublisherId int64        `db:"publisher_id" json:"publisherId"`
-	CreatedAt   time.Time    `db:"created_at" json:"createdAt"`
+	PublisherId  int64        `db:"publisher_id" json:"publisherId"`
+	CreatedAt    time.Time    `db:"created_at" json:"createdAt"`
 }
 
 // MarshalJSON 自定义作业 JSON 输出：
@@ -290,13 +290,13 @@ func (a *AssignmentRow) MarshalJSON() ([]byte, error) {
 		ldl = a.LateDeadline.Time.Format("2006-01-02 15:04")
 	}
 	return json.Marshal(&struct {
-		Deadline    string `json:"deadline"`
+		Deadline     string `json:"deadline"`
 		LateDeadline string `json:"lateDeadline"`
 		*Alias
 	}{
-		Deadline:    dl,
+		Deadline:     dl,
 		LateDeadline: ldl,
-		Alias:       (*Alias)(a),
+		Alias:        (*Alias)(a),
 	})
 }
 
@@ -330,16 +330,16 @@ func (m *ClassModel) GetAssignment(id int64) (*AssignmentRow, error) {
 // ---- assignment_submissions 作业提交 ----
 
 type SubmissionRow struct {
-	Id           int64         `db:"id" json:"id"`
-	AssignmentId int64         `db:"assignment_id"`
-	UserId       int64         `db:"user_id" json:"userId"`
-	Content      string        `db:"content" json:"content"`
+	Id           int64  `db:"id" json:"id"`
+	AssignmentId int64  `db:"assignment_id"`
+	UserId       int64  `db:"user_id" json:"userId"`
+	Content      string `db:"content" json:"content"`
 	// Answers 客观题作答 JSON，V11 加列。学生提交时由 logic 层写入。
-	Answers    string        `db:"answers" json:"answers"`
-	FileUrl    string        `db:"file_url" json:"fileUrl"`
-	Score      sql.NullInt64 `db:"score" json:"-"` // 老师手打分，MarshalJSON 输出数字或 null
-	AutoScore  sql.NullInt64 `db:"auto_score" json:"-"` // 客观题自动判分，MarshalJSON 输出数字或 null
-	Comment    string        `db:"comment" json:"comment"`
+	Answers     string        `db:"answers" json:"answers"`
+	FileUrl     string        `db:"file_url" json:"fileUrl"`
+	Score       sql.NullInt64 `db:"score" json:"-"`      // 老师手打分，MarshalJSON 输出数字或 null
+	AutoScore   sql.NullInt64 `db:"auto_score" json:"-"` // 客观题自动判分，MarshalJSON 输出数字或 null
+	Comment     string        `db:"comment" json:"comment"`
 	SubmittedAt time.Time     `db:"submitted_at" json:"submittedAt"`
 }
 
@@ -498,46 +498,10 @@ func (m *ClassModel) ListReplies(discussionId int64) ([]*ReplyRow, error) {
 }
 
 // ---- 成绩与学情 ----
-
-type GradeRow struct {
-	UserId        int64   `db:"user_id" json:"userId"`
-	Username      string  `db:"username" json:"username"`
-	Role          string  `db:"role" json:"role"`
-	AvgScore      float64 `db:"avg_score" json:"avgScore"`           // 作业平均分（有分的）
-	AssignmentCnt int     `db:"assignment_cnt" json:"assignmentCnt"` // 已交作业数
-	SigninCnt     int     `db:"signin_cnt" json:"signinCnt"`         // 签到次数
-	TotalScore    float64 `db:"total_score" json:"totalScore"`       // 加权总分（后端按权重算）
-}
-
-// ListGrades 聚合班级内每个学生的作业平均分、已交数、签到次数。
-// 依赖 signin_records（互动功能分支）和 assignment_submissions（V7）表。
-func (m *ClassModel) ListGrades(classId int64) ([]*GradeRow, error) {
-	var rows []*GradeRow
-	err := m.conn.QueryRowsCtx(context.Background(), &rows, `
-		SELECT cm.user_id AS user_id, u.username AS username, cm.role AS role,
-		       COALESCE((
-		         SELECT AVG(COALESCE(s.auto_score, s.score))
-		         FROM assignment_submissions s
-		         JOIN assignments a ON s.assignment_id=a.id
-		         WHERE a.class_id=? AND s.user_id=cm.user_id AND s.score IS NOT NULL
-		       ), 0) AS avg_score,
-		       COALESCE((
-		         SELECT COUNT(*) FROM assignment_submissions s
-		         JOIN assignments a ON s.assignment_id=a.id
-		         WHERE a.class_id=? AND s.user_id=cm.user_id
-		       ), 0) AS assignment_cnt,
-		       COALESCE((
-		         SELECT COUNT(*) FROM signin_records r
-		         JOIN class_signin cs ON r.signin_id=cs.id
-		         WHERE cs.class_id=? AND r.user_id=cm.user_id
-		       ), 0) AS signin_cnt,
-		       0 AS total_score
-		FROM class_members cm JOIN users u ON cm.user_id=u.id
-		WHERE cm.class_id=?
-		ORDER BY avg_score DESC
-	`, classId, classId, classId, classId)
-	return rows, err
-}
+//
+// 说明：成绩册的聚合查询已迁到 model/grade.go（ListGradebookRaw），
+// 这里只保留"权重规则"这类班级配置。旧的 ListGrades 子查询实现已删除：
+// 它把视频项写死成满分、签到不封顶、还丢掉了考试权重，算出来的总分没有意义。
 
 // GetGradeRule 取班级成绩权重
 func (m *ClassModel) GetGradeRule(classId int64) (videoW, assignW, signinW, examW int, err error) {

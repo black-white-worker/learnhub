@@ -8,6 +8,7 @@ import (
 
 	"learningplatform/internal/app/course"
 	"learningplatform/internal/app/course/logic"
+	"learningplatform/internal/authz"
 	"learningplatform/internal/svc"
 
 	"github.com/zeromicro/go-zero/rest/httpx"
@@ -37,6 +38,10 @@ func VideoUploadHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			httpx.ErrorCtx(r.Context(), w, errors.New("courseId 必须是数字"))
 			return
 		}
+		// 只有课程创建者/管理员能往这门课上传视频
+		if !authorizeCourse(w, r, courseId, authz.CourseUpload) {
+			return
+		}
 
 		// 3. 视频文件（表单字段 files，可多个）
 		fileHeaders := r.MultipartForm.File["files"]
@@ -45,7 +50,16 @@ func VideoUploadHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 
-		// 4. 逐个打开文件流。
+		// 4. 每日上传配额：按本次所有视频的总字节数预占（未配置则不限制）
+		var totalBytes int64
+		for _, fh := range fileHeaders {
+			totalBytes += fh.Size
+		}
+		if !uploadQuotaGuard(w, r, svcCtx, totalBytes) {
+			return
+		}
+
+		// 5. 逐个打开文件流。
 		// 大文件在内存里只保留文件头信息，内容通过 Reader 流式读取，避免撑爆内存。
 		req := &course.UploadVideosRequest{CourseId: courseId}
 		for _, fh := range fileHeaders {

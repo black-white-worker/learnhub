@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"learningplatform/internal/config"
 	"learningplatform/internal/app/course"
+	"learningplatform/internal/config"
 	"learningplatform/internal/svc"
 )
 

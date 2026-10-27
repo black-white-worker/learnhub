@@ -9,6 +9,7 @@ import (
 	"learningplatform/internal/model"
 	"learningplatform/internal/svc"
 
+	"github.com/zeromicro/go-zero/core/stores/redis"
 	"github.com/zeromicro/go-zero/rest/httpx"
 )
 
@@ -55,10 +56,52 @@ func (m *AuthMiddleware) Handle(next http.HandlerFunc) http.HandlerFunc {
 			writeUnauthorized(w, r)
 			return
 		}
+		// 3.1 角色实时化：会话里缓存的是登录那一刻的角色，
+		// 管理员改了角色后，老会话要等 24 小时才生效（期间权限判定全错）。
+		// 这里每次请求解析一次角色，用 60 秒的 Redis 缓存挡住数据库压力。
+		session.Role = m.resolveRole(session.Username, session.Role)
 		ctx := context.WithValue(r.Context(), AuthTokenKey, token)
 		ctx = context.WithValue(ctx, AuthSessionKey, session)
 		next(w, r.WithContext(ctx))
 	}
+}
+
+// RoleCacheKeyPrefix 用户角色的短缓存前缀（与 24h 的登录会话区分开）。
+const RoleCacheKeyPrefix = "user:role:"
+
+// roleCacheTTL 角色缓存有效期（秒）。管理员改角色后最多 60 秒内生效；
+// 若同时调用了 InvalidateRoleCache，则立即生效。
+const roleCacheTTL = 60
+
+// resolveRole 取用户当前角色：先看 60 秒缓存，再回源数据库。
+//
+// 降级策略：数据库或 Redis 出错时返回会话里的旧角色，
+// 保证"存储抖动"不会把所有人踢成未登录。
+func (m *AuthMiddleware) resolveRole(username, fallback string) string {
+	if username == "" {
+		return fallback
+	}
+	key := RoleCacheKeyPrefix + username
+	if m.svcCtx.Redis != nil {
+		if v, err := m.svcCtx.Redis.Get(key); err == nil && v != "" {
+			return v
+		}
+	}
+	if u := m.svcCtx.UserStore.GetUser(username); u != nil && u.Role != "" {
+		if m.svcCtx.Redis != nil {
+			_ = m.svcCtx.Redis.Setex(key, u.Role, roleCacheTTL)
+		}
+		return u.Role
+	}
+	return fallback
+}
+
+// InvalidateRoleCache 角色变更后立即失效缓存（管理员改角色、审批老师时调用）。
+func InvalidateRoleCache(rdb *redis.Redis, username string) {
+	if rdb == nil || username == "" {
+		return
+	}
+	_, _ = rdb.Del(RoleCacheKeyPrefix + username)
 }
 
 // writeUnauthorized 统一返回 401（未登录或登录已过期）。

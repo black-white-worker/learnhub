@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"learningplatform/internal/config"
 	"learningplatform/internal/app/user"
+	"learningplatform/internal/config"
 	"learningplatform/internal/svc"
 )
 

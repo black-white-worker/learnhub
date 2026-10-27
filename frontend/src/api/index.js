@@ -58,9 +58,17 @@ export function getVideoPlay(courseId, videoId) {
   return request.get(`/course/video/play/${courseId}/${videoId}`)
 }
 
-// 上报播放进度（position 单位：秒）
-export function saveVideoProgress(courseId, videoId, position) {
-  return request.post(`/course/video/progress/${courseId}/${videoId}`, { position })
+// 上报播放进度。
+// 改造后按用户落库并统计"真实观看时长"，所以除了位置还要上报：
+//   watchedDelta  上次上报以来真实播放的秒数（拖动不计）
+//   duration      视频总时长（服务端据此判断是否看完）
+// 兼容：老调用方式 saveVideoProgress(cid, vid, 42) 仍然可用。
+export function saveVideoProgress(courseId, videoId, positionOrOpts) {
+  const payload =
+    typeof positionOrOpts === 'number'
+      ? { position: positionOrOpts }
+      : { position: 0, watchedDelta: 0, duration: 0, ...positionOrOpts }
+  return request.post(`/course/video/progress/${courseId}/${videoId}`, payload)
 }
 
 // 读取上次播放进度（秒）

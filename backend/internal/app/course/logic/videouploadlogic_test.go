@@ -3,6 +3,7 @@ package logic
 import (
 	"bytes"
 	"context"
+	"learningplatform/internal/app/course"
 	"strings"
 	"testing"
 )

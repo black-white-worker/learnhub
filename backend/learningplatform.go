@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"learningplatform/internal/app/course"
+	examlogic "learningplatform/internal/app/exam/logic"
 	"learningplatform/internal/config"
 	"learningplatform/internal/handler"
 	"learningplatform/internal/middleware"
@@ -38,6 +39,10 @@ func main() {
 	// 启动孤儿对象后台清理（每 10 分钟扫描一次 MinIO，
 	// 删除"上传成功但课程未引用"的残留封面/视频，网络波动兜底）
 	course.StartOrphanSweeper(ctx)
+
+	// 启动考试超时自动收卷（每分钟扫一次"考试中"的记录，
+	// 超过"开考时间 + 时长"强制收卷，避免关页面就能一直答）
+	examlogic.StartAutoSubmitter(ctx)
 
 	fmt.Printf("Starting server at %s:%d...\n", c.Host, c.Port)
 	server.Start()

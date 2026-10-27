@@ -6,9 +6,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
+	"strings"
 
-	"learningplatform/internal/model"
 	"learningplatform/internal/app/user"
+	"learningplatform/internal/model"
 	"learningplatform/internal/svc"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -37,10 +40,22 @@ const loginTokenTTL = 24 * 3600
 // 3. 把会话信息（用户名 + 昵称）以 JSON 写入 Redis，TTL 24 小时
 // 4. 返回 token 给前端，后续请求带 Authorization: Bearer {token}
 func (l *LoginLogic) Login(req *user.LoginRequest) (resp *user.LoginResponse, err error) {
+	ip := clientIPOf(l.ctx)
+	guard := loginGuardOf(l.svcCtx)
+
+	// 0. 先看是否已被锁定（同一 IP + 用户名连续失败 5 次，锁 10 分钟）
+	if guard.Locked(ip, req.Username) {
+		return nil, user.ErrTooManyAttempts
+	}
+
 	// 1. 校验用户名密码
 	if !l.svcCtx.UserStore.Verify(req.Username, req.Password) {
-		return nil, errors.New("用户名或密码错误")
+		// 记录一次失败；第 5 次起后续请求会被上面的 Locked 拦住
+		guard.Fail(ip, req.Username)
+		return nil, user.ErrBadCredentials
 	}
+	// 登录成功：清空失败计数
+	guard.Success(ip, req.Username)
 
 	// 2. 生成随机 token（crypto/rand，比拼接时间戳更安全，主流的做法）
 	token, err := generateLoginToken()
@@ -76,6 +91,37 @@ func (l *LoginLogic) Login(req *user.LoginRequest) (resp *user.LoginResponse, er
 		Username: req.Username,
 		Role:     u.Role,
 	}, nil
+}
+
+// errEmptyBody 登录请求体为空或缺少必填字段。
+var errEmptyBody = errors.New("用户名和密码不能为空")
+
+// ParseLoginJSON 宽松解析登录请求体：空 body 返回错误，但不做 required 校验
+// （交给逻辑层判断），这样"少传字段"会得到可读的中文提示而不是框架英文报错。
+func ParseLoginJSON(r *http.Request, v *user.LoginRequest) error {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		return err
+	}
+	if len(body) == 0 {
+		return errEmptyBody
+	}
+	if err := json.Unmarshal(body, v); err != nil {
+		return err
+	}
+	if strings.TrimSpace(v.Username) == "" || v.Password == "" {
+		return errEmptyBody
+	}
+	return nil
+}
+
+// clientIPOf 从 context 取客户端 IP（登录 handler 会写入）。
+// 取不到时返回空串，key 里会用 "unknown" 兜底，不影响限流生效。
+func clientIPOf(ctx context.Context) string {
+	if v, ok := ctx.Value(user.ClientIPKey).(string); ok {
+		return v
+	}
+	return ""
 }
 
 // generateLoginToken 生成 32 字节的随机 token（十六进制 64 位）。

@@ -8,6 +8,7 @@ import (
 
 	"learningplatform/internal/app/course"
 	"learningplatform/internal/app/course/logic"
+	"learningplatform/internal/authz"
 	"learningplatform/internal/svc"
 
 	"github.com/zeromicro/go-zero/rest/httpx"
@@ -42,6 +43,10 @@ func CoverUploadHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			httpx.ErrorCtx(r.Context(), w, errors.New("请先输入课程名称并创建课程，再上传封面"))
 			return
 		}
+		// 只有课程创建者/管理员能往这门课上传封面
+		if !authorizeCourse(w, r, courseId, authz.CourseUpload) {
+			return
+		}
 
 		// 3. 封面文件（表单字段 file，单文件）
 		file, header, err := r.FormFile("file")
@@ -58,6 +63,9 @@ func CoverUploadHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		}
 
 		// 5. 读取文件字节（限制读取长度，防止超限文件撑爆内存）
+		if !uploadQuotaGuard(w, r, svcCtx, header.Size) {
+			return
+		}
 		data, err := io.ReadAll(io.LimitReader(file, course.EffectiveMaxCoverBytes(svcCtx)+1))
 		if err != nil {
 			httpx.ErrorCtx(r.Context(), w, err)

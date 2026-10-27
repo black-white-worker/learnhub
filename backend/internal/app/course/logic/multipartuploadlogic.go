@@ -11,6 +11,7 @@ import (
 
 	"learningplatform/internal/app/class"
 	"learningplatform/internal/app/course"
+	"learningplatform/internal/authz"
 	"learningplatform/internal/model"
 	"learningplatform/internal/oss"
 	"learningplatform/internal/svc"
@@ -52,6 +53,10 @@ func (l *MultipartUploadLogic) Init(req *course.InitMultipartRequest, cu *class.
 	if _, err := course.Store.GetCourse(req.CourseId); err != nil {
 		return nil, &class.BizError{Code: http.StatusNotFound, Msg: "课程不存在"}
 	}
+	// 只有课程创建者/管理员能往这门课上传视频（改造前只校验"已登录"）
+	if err := course.AuthorizeAs(cu.Username, cu.Role, req.CourseId, authz.CourseUpload); err != nil {
+		return nil, err
+	}
 	ext := strings.ToLower(filepath.Ext(req.FileName))
 	if !course.IsAllowedVideo(ext) {
 		return nil, &class.BizError{Code: http.StatusBadRequest, Msg: "仅支持 mp4/mov/webm/avi/mkv"}
@@ -62,6 +67,11 @@ func (l *MultipartUploadLogic) Init(req *course.InitMultipartRequest, cu *class.
 	}
 	if req.FileSize > maxBytes {
 		return nil, &class.BizError{Code: http.StatusBadRequest, Msg: "视频超过大小上限"}
+	}
+	// 每日上传配额：分片直传绕过普通上传 handler，必须在这里自己预占。
+	// 配额在 init 时按声明大小一次性计入，complete/abort 不再变动（见 quota 包注释）。
+	if err := l.svcCtx.Quota.Reserve(cu.Id, req.FileSize); err != nil {
+		return nil, err
 	}
 
 	uploadID := uuid.NewString()

@@ -32,6 +32,40 @@ async function load() {
   }
 }
 
+// 我的作业（/api/my/assignments：一次返回我所有班级的作业 + 提交状态）
+const assignments = ref([])
+const assignmentLoading = ref(false)
+
+const ASSIGN_STATUS = {
+  submitted: { text: '已提交', type: 'success' },
+  overdue: { text: '已截止未交', type: 'danger' },
+  pending: { text: '待完成', type: 'warning' },
+}
+
+async function loadAssignments() {
+  assignmentLoading.value = true
+  const token = localStorage.getItem('token')
+  try {
+    const r = await axios.get('/api/my/assignments', {
+      headers: { Authorization: 'Bearer ' + token },
+    })
+    assignments.value = r.data?.list || []
+  } catch (e) {
+    assignments.value = []
+  } finally {
+    assignmentLoading.value = false
+  }
+}
+
+function assignmentStatus(a) {
+  return ASSIGN_STATUS[a.myStatus] || ASSIGN_STATUS.pending
+}
+
+function fmtDeadline(t) {
+  if (!t) return '不限时'
+  return String(t).replace('T', ' ').slice(0, 16)
+}
+
 async function applyTeacher() {
   applying.value = true
   try {
@@ -71,7 +105,10 @@ async function markAllRead() {
   } catch (e) {}
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  loadAssignments()
+})
 </script>
 
 <template>
@@ -95,6 +132,36 @@ onMounted(load)
           申请成为老师
         </el-button>
         <el-alert v-else type="success" :closable="false" title="申请已提交，请等待管理员审批" />
+      </div>
+    </el-card>
+
+    <!-- 我的作业：跨班级聚合，按状态一眼看出哪些还没交 -->
+    <el-card class="assign-card" v-loading="assignmentLoading">
+      <template #header>
+        <div class="notify-head">
+          <b>我的作业</b>
+          <span class="all-read">共 {{ assignments.length }} 份</span>
+        </div>
+      </template>
+      <el-empty v-if="!assignments.length" description="暂无作业" :image-size="60" />
+      <div v-else class="assign-list">
+        <div
+          v-for="a in assignments"
+          :key="a.id"
+          class="assign-item"
+          @click="router.push(`/assignment/${a.id}`)"
+        >
+          <div class="assign-main">
+            <b>{{ a.title }}</b>
+            <small>{{ a.className }} · 截止 {{ fmtDeadline(a.deadline) }}</small>
+          </div>
+          <div class="assign-right">
+            <el-tag size="small" :type="assignmentStatus(a).type">{{ assignmentStatus(a).text }}</el-tag>
+            <span v-if="a.myScore !== null && a.myScore !== undefined" class="score">
+              {{ a.myScore }} / {{ a.totalScore }}
+            </span>
+          </div>
+        </div>
       </div>
     </el-card>
 
@@ -135,6 +202,17 @@ onMounted(load)
 .profile-card { padding: 12px; margin-bottom: 16px; }
 .apply-box { margin-top: 16px; }
 .notify-card { padding: 12px; }
+.assign-card { padding: 12px; margin-bottom: 16px; }
+.assign-list { display: flex; flex-direction: column; gap: 8px; }
+.assign-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px; border-radius: 8px; cursor: pointer; border: 1px solid #f1f5f9;
+}
+.assign-item:hover { background: #f8fafc; }
+.assign-main b { font-size: 14px; color: #1f2937; display: block; }
+.assign-main small { color: #9ca3af; font-size: 12px; }
+.assign-right { display: flex; align-items: center; gap: 8px; }
+.assign-right .score { font-size: 13px; color: #475569; }
 .notify-head { display: flex; justify-content: space-between; align-items: center; }
 .all-read { color: #9ca3af; font-size: 13px; }
 .notify-list { display: flex; flex-direction: column; gap: 8px; }

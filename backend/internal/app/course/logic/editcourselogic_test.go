@@ -2,6 +2,7 @@ package logic
 
 import (
 	"context"
+	"learningplatform/internal/app/course"
 	"testing"
 )
 

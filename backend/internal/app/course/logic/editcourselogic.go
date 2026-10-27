@@ -37,6 +37,8 @@ func (l *EditCourseLogic) EditCourse(req *course.EditCourseRequest) (resp *cours
 	if err != nil {
 		return nil, err
 	}
+	// 列表缓存失效，改完名字首页立刻生效
+	course.InvalidateListCache(l.svcCtx.Redis)
 
 	return &course.EditCourseResponse{
 		Id:      c.Id,

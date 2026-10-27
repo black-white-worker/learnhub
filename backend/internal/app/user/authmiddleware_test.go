@@ -1,7 +1,13 @@
 package user
 
+// 鉴权中间件的单元测试。
+//
+// 说明：这里的用例只依赖 Redis（会话存储），不依赖 MySQL——
+// 改造前的第三个用例走了"真登录"，需要预置账号 + 数据库，本地没起容器就整包失败。
+// 现在直接把会话写进 Redis，测的是中间件本身的行为，边界更清晰。
+
 import (
-	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -48,32 +54,36 @@ func TestAuthMiddleware_InvalidToken(t *testing.T) {
 	}
 }
 
-// 测试用例 3：带真实登录 token → 放行，并把会话信息放入 context
+// 测试用例 3：带有效会话 → 放行，并把会话信息放入 context。
 func TestAuthMiddleware_ValidToken(t *testing.T) {
 	svcCtx := newTestSvcCtx()
 
-	// 1. 先登录拿到真实 token（会话写入 Redis）
-	loginLogic := NewLoginLogic(context.Background(), svcCtx)
-	loginResp, err := loginLogic.Login(&LoginRequest{Username: "admin", Password: "123456"})
+	// 1. 直接把会话写进 Redis（等价于登录成功后的状态，省掉 MySQL 依赖）
+	token := "unit-test-token-" + strings.Repeat("a", 8)
+	session := model.SessionUser{Username: "admin", Nickname: "管理员", Role: "admin"}
+	data, err := json.Marshal(session)
 	if err != nil {
-		t.Fatalf("前置准备：登录失败: %v", err)
+		t.Fatalf("序列化会话失败: %v", err)
+	}
+	if err := svcCtx.Redis.Setex(SessionKeyPrefix+token, string(data), 3600); err != nil {
+		t.Fatalf("写入 Redis 会话失败（Redis 未启动？）: %v", err)
 	}
 
 	// 2. 带有效 token 请求，验证中间件放行且注入会话
 	m := NewAuthMiddleware(svcCtx)
 	req := httptest.NewRequest(http.MethodGet, "/api/user/info", nil)
-	req.Header.Set("Authorization", "Bearer "+loginResp.Token)
+	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
 
-	var session model.SessionUser
+	var got *model.SessionUser
 	m.Handle(func(w http.ResponseWriter, r *http.Request) {
-		session, _ = r.Context().Value(authSessionKey).(model.SessionUser)
+		got = CurrentUser(r)
 	})(w, req)
 
-	if session.Username != "admin" {
-		t.Fatalf("期望 context 里会话用户是 admin，实际是 %s", session.Username)
+	if got == nil {
+		t.Fatal("期望中间件把会话放进 context")
 	}
-	if session.Nickname != "管理员" {
-		t.Fatalf("期望 context 里会话昵称是 管理员，实际是 %s", session.Nickname)
+	if got.Username != "admin" || got.Role != "admin" {
+		t.Fatalf("context 里的会话不对: %+v", got)
 	}
 }

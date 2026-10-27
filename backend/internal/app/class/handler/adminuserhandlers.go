@@ -96,6 +96,8 @@ func AdminUpdateUserHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		if req.Role == "admin" || req.Role == "teacher" || req.Role == "student" {
 			_ = svcCtx.UserStore.UpdateRole(req.Username, req.Role)
 			_ = svcCtx.UserStore.ClearApplyTeacher(req.Username)
+			// 角色变更立即生效：清掉 60 秒的角色缓存
+			user.InvalidateRoleCache(svcCtx.Redis, req.Username)
 		}
 		httpx.OkJsonCtx(r.Context(), w, map[string]string{"message": "ok"})
 	}

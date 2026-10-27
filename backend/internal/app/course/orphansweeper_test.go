@@ -24,7 +24,7 @@ func TestSweepOrphans_RemovesUnreferenced(t *testing.T) {
 	oss.backdate(orphanName, 30*time.Minute)
 
 	// 2. 新建一门课程，并让它引用一个封面对象（被引用 → 应保留）
-	c, err := store.AddCourse("孤儿清理测试课", "", "", "tester")
+	c, err := Store.AddCourse("孤儿清理测试课", "", "", "tester")
 	if err != nil {
 		t.Fatalf("造课程失败: %v", err)
 	}
@@ -33,7 +33,7 @@ func TestSweepOrphans_RemovesUnreferenced(t *testing.T) {
 	if _, err := oss.PutObject(context.Background(), coverName, strings.NewReader("x"), 1, "image/png"); err != nil {
 		t.Fatalf("造封面对象失败: %v", err)
 	}
-	if err := store.SetCover(c.Id, coverURL, ""); err != nil {
+	if err := Store.SetCover(c.Id, coverURL, ""); err != nil {
 		t.Fatalf("写课程封面引用失败: %v", err)
 	}
 

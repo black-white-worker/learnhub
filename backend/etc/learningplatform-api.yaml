@@ -16,11 +16,23 @@ Minio:
   SecretKey: "${MINIO_SECRET_KEY}"
   UseSSL: false
   Bucket: "${MINIO_BUCKET}"
+  # 私有桶开关（MINIO_PRIVATE=true 开启）：开启后课程详情/播放/资源列表返回
+  # 30 分钟有效的预签名 URL，不再依赖桶的匿名读策略（防盗链）。
+  #
+  # 必须写成**不带引号**的布尔占位符：
+  # 写成 Private: "${MINIO_PRIVATE}" 展开后是字符串 "false"，
+  # go-zero 会报 type mismatch for field Minio.Private 并拒绝启动（容器反复重启）。
+  # 变量缺失时该行变成空值，YAML 解析为 null，bool 取零值 false，同样安全。
+  # 开启前需要把桶策略改成私有：mc anonymous set none local/<bucket>/course/
+  Private: ${MINIO_PRIVATE}
 
 # 上传大小限制（字节）
 Upload:
   MaxCoverBytes: 5242880      # 封面 5MB
   MaxVideoBytes: 524288000    # 单个视频 500MB
+  # 每个用户每日上传总量上限：0 = 不限制；建议生产环境配 2147483648（2GB）。
+  # 计数在 Redis（upload:quota:YYYYMMDD:userId，48h TTL），用于防"账号被盗后把存储灌满"。
+  DailyQuotaBytesPerUser: 0
 
 # ===== MySQL 配置 =====
 # 数据源通过环境变量 MYSQL_DSN 注入（本机直跑示例）：

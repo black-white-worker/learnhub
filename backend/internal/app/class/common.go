@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"learningplatform/internal/app/user"
+	"learningplatform/internal/authz"
 	"learningplatform/internal/response"
 	"learningplatform/internal/svc"
 
@@ -96,16 +98,28 @@ func RequireClassMember(svcCtx *svc.ServiceContext, classId int64, cu *CtxUser) 
 	return role, nil
 }
 
-// RequireTeacher 校验老师/管理员身份
-func RequireTeacher(svcCtx *svc.ServiceContext, classId int64, cu *CtxUser) *BizError {
-	role, err := RequireClassMember(svcCtx, classId, cu)
-	if err != nil {
-		return err
+// RequireClassTeacher 班级范围内的权限校验（统一走 authz 能力矩阵）。
+//
+// 为什么不让各模块自己写 if role != "teacher"：
+//
+//	改造前班级模块用裸字符串判断、考试模块又自己写了一版、课程模块干脆没写，
+//	三套标准必然漂移（实际就漂成了"作业详情看全局角色、考试详情看班内角色"）。
+//	现在所有"班级里的老师才能做"的判定都收敛到这一条路径。
+func RequireClassTeacher(svcCtx *svc.ServiceContext, classId int64, cu *CtxUser, cap authz.Capability) *BizError {
+	role, be := RequireClassMember(svcCtx, classId, cu)
+	if be != nil {
+		return be
 	}
-	if role != "teacher" && role != "admin" {
-		return &BizError{Code: http.StatusForbidden, Msg: "需要老师权限"}
+	actor := authz.Actor{UserId: cu.Id, Username: cu.Username, Role: cu.Role, ClassRole: role}
+	if err := actor.Require(cap, authz.Resource{ClassRole: role}); err != nil {
+		return AsBizError(err)
 	}
 	return nil
+}
+
+// RequireTeacher 校验老师/管理员身份（班级管理类能力的通用入口）。
+func RequireTeacher(svcCtx *svc.ServiceContext, classId int64, cu *CtxUser) *BizError {
+	return RequireClassTeacher(svcCtx, classId, cu, authz.ClassManage)
 }
 
 // ParseIntPath 从 go-zero 路径参数取 int。
@@ -124,6 +138,26 @@ func ParseIntPath(r *http.Request, key string) int64 {
 		}
 	}
 	return 0
+}
+
+// AsBizError 把任意 error 转成 *BizError，便于 logic 层混用不同来源的拒绝错误。
+//
+// 典型场景：authz.Require 返回 *authz.Denied（403），
+// 而 logic 的返回类型是 *BizError，这里统一转换，不需要在每处手写 if。
+func AsBizError(err error) *BizError {
+	if err == nil {
+		return nil
+	}
+	var be *BizError
+	if errors.As(err, &be) {
+		return be
+	}
+	// 实现了 StatusCode() 的错误（如 *authz.Denied）按它给的状态码输出
+	var coded interface{ StatusCode() int }
+	if errors.As(err, &coded) {
+		return &BizError{Code: coded.StatusCode(), Msg: err.Error()}
+	}
+	return &BizError{Code: http.StatusInternalServerError, Msg: err.Error()}
 }
 
 // StatusCode 实现 response.codedError 接口，让 response.Error 能识别 BizError。

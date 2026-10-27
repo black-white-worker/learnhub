@@ -26,10 +26,10 @@ type CreateClassResp struct {
 }
 
 type ClassDetailResp struct {
-	Class      *model.ClassRow        `json:"class"`
+	Class      *model.ClassRow         `json:"class"`
 	Members    []*model.ClassMemberRow `json:"members"`
-	CourseIds  []int64                `json:"courseIds"`
-	InviteCode string                 `json:"inviteCode"`
+	CourseIds  []int64                 `json:"courseIds"`
+	InviteCode string                  `json:"inviteCode"`
 	// MyRole 当前登录用户在本班的角色（teacher/student/admin/空=不在班），
 	// 由 logic 层用 RequireClassMember 的返回值填充，前端不用自己再去 members 里 find。
 	MyRole string `json:"myRole"`
@@ -190,6 +190,6 @@ type UpdateUserRoleReq struct {
 // ---- 成绩 ----
 
 type ListGradesResp struct {
-	Rule map[string]int      `json:"rule"`
-	Rows []*model.GradeRow    `json:"rows"`
+	Rule map[string]int    `json:"rule"`
+	Rows []*model.GradeRow `json:"rows"`
 }

@@ -8,6 +8,7 @@ import (
 
 	"learningplatform/internal/app/course"
 	"learningplatform/internal/app/course/logic"
+	"learningplatform/internal/authz"
 	"learningplatform/internal/svc"
 
 	"github.com/zeromicro/go-zero/rest/httpx"
@@ -34,6 +35,10 @@ func ResourceUploadHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			httpx.ErrorCtx(r.Context(), w, errors.New("courseId 必须是数字"))
 			return
 		}
+		// 只有课程创建者/管理员能往这门课上传讲义
+		if !authorizeCourse(w, r, courseId, authz.CourseUpload) {
+			return
+		}
 
 		file, header, err := r.FormFile("file")
 		if err != nil {
@@ -45,6 +50,10 @@ func ResourceUploadHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		maxBytes := course.EffectiveMaxResourceBytes(svcCtx)
 		if header.Size > maxBytes {
 			httpx.ErrorCtx(r.Context(), w, errors.New("资源文件超过大小上限"))
+			return
+		}
+		// 每日上传配额（与封面/视频共用同一份额度）
+		if !uploadQuotaGuard(w, r, svcCtx, header.Size) {
 			return
 		}
 

@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"learningplatform/internal/model"
 	"learningplatform/internal/app/user"
+	"learningplatform/internal/model"
 	"learningplatform/internal/svc"
 
 	"github.com/zeromicro/go-zero/core/logx"

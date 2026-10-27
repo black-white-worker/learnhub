@@ -193,6 +193,19 @@ func (m *MinioStore) PresignPutObject(ctx context.Context, objectName, contentTy
 	return u.String(), nil
 }
 
+// PresignGetObject 生成一个有时效的下载 URL（私有桶场景）。
+//
+// 为什么单独加这个方法而不是改 ObjectStorage 接口：
+// 接口是被 fakeOss 等测试实现共享的，加方法会打断所有实现；
+// 这里用"可选能力"的方式提供，调用方按需类型断言（见 course.MediaURL）。
+func (m *MinioStore) PresignGetObject(ctx context.Context, objectName string, expiry time.Duration) (string, error) {
+	u, err := m.presignClient.PresignedGetObject(ctx, m.bucket, objectName, expiry, nil)
+	if err != nil {
+		return "", fmt.Errorf("生成预签名下载 URL 失败: %w", err)
+	}
+	return u.String(), nil
+}
+
 // ComposeObjects 把多个已存在的源对象按顺序合并成 dst。
 // 分片上传场景：前端把每片 PUT 到 {objectName}.part1/.part2/...，
 // 后端调本方法合并成最终视频，再用 RemoveObject 清掉 parts。

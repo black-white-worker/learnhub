@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"learningplatform/internal/model"
 	"learningplatform/internal/app/class"
+	"learningplatform/internal/model"
 	"learningplatform/internal/svc"
 )
 
@@ -53,6 +53,18 @@ func (l *SubmitAssignmentLogic) SubmitAssignment(aid int64, req *class.SubmitAss
 			_ = l.svcCtx.ClassStore.UpdateSubmissionAutoScore(sub.Id, string(answersJSON), autoScore)
 		}
 		resp.AutoScore = autoScore
+
+		// 成绩册落库：客观题自动判分直接记一条（graded_by=0 表示系统判分）。
+		// 老师后续手动批改会覆盖这条记录。
+		maxScore := float64(a.TotalScore)
+		if maxScore <= 0 {
+			maxScore = float64(class.SumQuestionScore(questions))
+		}
+		if maxScore > 0 {
+			if itemId, e := l.svcCtx.ClassStore.EnsureGradeItem(a.ClassId, "assignment", a.Id, a.Title, maxScore); e == nil {
+				_ = l.svcCtx.ClassStore.SetGradeScore(itemId, cu.Id, float64(autoScore), 0)
+			}
+		}
 	}
 	return resp, nil
 }

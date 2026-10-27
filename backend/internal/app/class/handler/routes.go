@@ -74,6 +74,13 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 
 		// 成绩与学情
 		{Method: http.MethodGet, Path: "/api/class/:id/grades", Handler: listGradesHandler(serverCtx)},
+		// 「我的」聚合：一次 JOIN 返回我所有班级的考试/作业 + 我的提交状态
+		{Method: http.MethodGet, Path: "/api/my/exams", Handler: MyExamsHandler(serverCtx)},
+		{Method: http.MethodGet, Path: "/api/my/assignments", Handler: MyAssignmentsHandler(serverCtx)},
+		// 成绩单导出（CSV，老师端一键带走）
+		{Method: http.MethodGet, Path: "/api/class/:id/grades/export", Handler: ExportGradesHandler(serverCtx)},
+		// 逐份批阅队列（SpeedGrader 数据源，未批优先）
+		{Method: http.MethodGet, Path: "/api/assignment/:aid/grade-queue", Handler: GradeQueueHandler(serverCtx)},
 
 		// 站内消息（问题3）
 		{Method: http.MethodGet, Path: "/api/notifications", Handler: listNotificationsHandler(serverCtx)},

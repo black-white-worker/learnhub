@@ -301,7 +301,13 @@ defineExpose({ questions, settings })
 
         <!-- 答案设置（老师端） -->
         <div v-if="!isStudent && ['single','multiple','fill'].includes(q.type)" class="qe-answer">
-          <el-input v-model="q.answer" :placeholder="q.type==='multiple' ? '答案字母逗号分隔，如 A,C' : '标准答案'" @input="scheduleSave(q)" size="small" style="max-width:300px" />
+          <el-input
+            v-model="q.answer"
+            :placeholder="q.type==='multiple' ? '填选项大写字母，逗号分隔，如 A,C' : (q.type==='single' ? '填选项大写字母，如 A' : '填标准答案')"
+            @input="scheduleSave(q)"
+            size="small"
+            style="max-width:320px"
+          />
           <span style="font-size:12px;color:#888;margin-left:8px">标准答案</span>
         </div>
       </div>
@@ -355,13 +361,58 @@ defineExpose({ questions, settings })
 </template>
 
 <style scoped>
-.qe-container { display: flex; gap: 12px; min-height: calc(100vh - 120px); padding: 12px; }
-.qe-left { width: 140px; flex-shrink: 0; background: #fafafa; border-radius: 8px; padding: 12px; }
-.qe-left-title { font-weight: 600; margin-bottom: 12px; color: #333; }
+/* ===== 三栏编辑器布局（参考腾讯问卷 / 问卷星）=====
+ *
+ * 关键点：让编辑器自己成为滚动容器，只有中间"题目列"滚动，
+ * 左边题型栏和右边整卷设置始终钉在原地。
+ *
+ * 为什么不继续用 position: sticky：
+ *   外层 Element Plus 的 <el-main> 自带 overflow: auto，且高度随内容撑开。
+ *   它因此成为一个"永远不滚动的滚动容器"，里面的 sticky 元素的粘附参照系
+ *   就是它自己 —— 于是 sticky 永远不会触发。这是上一版改完没生效的真正原因。
+ *   改成固定高度 + 内部滚动后，不再依赖任何祖先的滚动行为。
+ */
+.qe-container {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+  /* 顶部导航 64 + 教师头 ~50 + 页脚 44，留一点余量；dvh 兼容移动端地址栏 */
+  height: calc(100vh - 170px);
+  height: calc(100dvh - 170px);
+  min-height: 420px;
+  box-sizing: border-box;
+  padding: 12px;
+}
+/* 左：题型栏。自身可滚动（题型多时不会撑破），但位置不随中间内容移动 */
+.qe-left {
+  width: 140px;
+  flex-shrink: 0;
+  background: #fafafa;
+  border-radius: 8px;
+  padding: 12px;
+  height: 100%;
+  overflow-y: auto;
+}
+.qe-left-title {
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: #333;
+  position: sticky;
+  top: 0;
+  background: #fafafa;
+  padding-bottom: 4px;
+}
 .qe-type-item { padding: 10px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 8px; margin-bottom: 6px; transition: background .15s; }
 .qe-type-item:hover { background: #e8f0fe; }
 .qe-type-icon { font-size: 16px; width: 24px; text-align: center; }
-.qe-center { flex: 1; min-width: 0; }
+/* 中：唯一滚动的列 */
+.qe-center {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  overflow-y: auto;
+  padding-right: 4px;
+}
 .qe-empty { text-align: center; color: #999; padding: 60px 0; }
 .qe-card { background: #fff; border: 1px solid #eaeaea; border-radius: 8px; padding: 14px; margin-bottom: 12px; }
 .qe-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
@@ -373,6 +424,23 @@ defineExpose({ questions, settings })
 .qe-option-letter { color: #666; width: 20px; }
 .qe-judge { margin-top: 10px; }
 .qe-answer { margin-top: 10px; }
-.qe-right { width: 280px; flex-shrink: 0; background: #fafafa; border-radius: 8px; padding: 16px; }
-.qe-right-title { font-weight: 600; margin-bottom: 12px; }
+/* 右：整卷设置，同样固定、自身可滚 */
+.qe-right {
+  width: 280px;
+  flex-shrink: 0;
+  background: #fafafa;
+  border-radius: 8px;
+  padding: 16px;
+  height: 100%;
+  overflow-y: auto;
+}
+.qe-right-title { font-weight: 600; margin-bottom: 12px; position: sticky; top: 0; background: #fafafa; padding-bottom: 4px; }
+
+/* 窄屏：改为纵向堆叠，避免三栏挤在一起 */
+@media (max-width: 1100px) {
+  .qe-container { flex-direction: column; height: auto; }
+  .qe-left { width: 100%; height: auto; }
+  .qe-right { width: 100%; height: auto; }
+  .qe-center { height: auto; overflow: visible; }
+}
 </style>

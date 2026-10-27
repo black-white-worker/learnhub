@@ -34,8 +34,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, onMounted, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'
 
@@ -46,14 +46,33 @@ import GradeTab from '../components/class/GradeTab.vue'
 import SigninTab from '../components/class/SigninTab.vue'
 
 const route = useRoute()
+const router = useRouter()
 const classId = route.params.id
 const token = localStorage.getItem('token')
 const auth = { headers: { Authorization: 'Bearer ' + token } }
 
 const loading = ref(false)
 const detail = ref(null)
-const tab = ref('notice')
 const inviteCode = ref('')
+
+// ===== 页签与 URL 同步 =====
+//
+// 改造前 tab = ref('notice')：只要刷新，组件重挂载就回到"公告"，
+// 正在看作业/签到的老师会被强行弹走。现在把页签放进 URL 查询参数
+// （?tab=hw），刷新、分享链接、前进后退都能保持当前页签。
+const TABS = ['notice', 'hw', 'discuss', 'grade', 'signin']
+const tab = ref(TABS.includes(route.query.tab) ? route.query.tab : 'notice')
+
+watch(tab, (val) => {
+  // 用 replace 而不是 push，避免每切一次页签就往历史里塞一条记录
+  if (route.query.tab === val) return
+  router.replace({ query: { ...route.query, tab: val } })
+})
+
+// 浏览器前进/后退时同步回来
+watch(() => route.query.tab, (val) => {
+  if (TABS.includes(val) && val !== tab.value) tab.value = val
+})
 
 const isTeacher = computed(() => detail.value?.myRole === 'teacher' || detail.value?.myRole === 'admin')
 const isMember = computed(() => !!detail.value?.myRole)

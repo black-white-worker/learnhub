@@ -43,6 +43,8 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 		{Method: http.MethodPost, Path: "/api/exam/:id/submit", Handler: submitHandler(serverCtx)},
 		// 老师手批
 		{Method: http.MethodPost, Path: "/api/exam/submission/:sid/grade", Handler: gradeHandler(serverCtx)},
+		// 考试中的切屏/违纪上报（服务端累加，老师端可见）
+		{Method: http.MethodPost, Path: "/api/exam/:id/violation", Handler: violationHandler(serverCtx)},
 	}
 	server.AddRoutes(
 		rest.WithMiddleware(user.NewAuthMiddleware(serverCtx).Handle, routes...),

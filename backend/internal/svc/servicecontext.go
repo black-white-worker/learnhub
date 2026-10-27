@@ -7,6 +7,7 @@ import (
 	"learningplatform/internal/config"
 	"learningplatform/internal/model"
 	"learningplatform/internal/oss"
+	"learningplatform/internal/quota"
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/core/stores/redis"
@@ -27,6 +28,8 @@ type ServiceContext struct {
 	UploadStore *model.UploadSessionModel
 	// Redis 缓存客户端，登录成功后把 token 写入 Redis
 	Redis *redis.Redis
+	// 上传配额限制器（按用户 + 自然日计数，DayQuota=0 时不限制）
+	Quota *quota.Limiter
 	// DB 暴露底层 sqlx 连接，供轻量表（操作日志等）直接读写
 	DB sqlx.SqlConn
 }
@@ -38,11 +41,13 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		UserStore:   model.NewUserModel(conn),
 		CourseStore: model.NewCourseModel(conn),
 		ClassStore:  model.NewClassModel(conn),
-		ExamStore:    model.NewExamModel(conn),
-		UploadStore:  model.NewUploadSessionModel(conn),
+		ExamStore:   model.NewExamModel(conn),
+		UploadStore: model.NewUploadSessionModel(conn),
 		Redis:       redis.MustNewRedis(c.Redis),
 		DB:          conn,
 	}
+	// 上传配额：跟着 Redis 走，上限来自配置（0 表示不限制）
+	sc.Quota = quota.New(sc.Redis, c.Upload.DailyQuotaBytesPerUser)
 
 	// MinIO 配置了 Endpoint 才初始化对象存储。
 	// 初始化失败只记日志不 panic（比如启动时 MinIO 还没起来），接口层再报错。
