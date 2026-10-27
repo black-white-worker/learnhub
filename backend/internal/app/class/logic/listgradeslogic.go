@@ -20,7 +20,7 @@ import (
 	"strings"
 
 	"learningplatform/internal/app/class"
-	"learningplatform/internal/gradebook"
+	"learningplatform/internal/domain/gradebook"
 	"learningplatform/internal/model"
 	"learningplatform/internal/svc"
 )

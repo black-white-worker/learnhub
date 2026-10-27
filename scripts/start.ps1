@@ -1,11 +1,11 @@
-﻿# 学习平台 一键启动脚本（参考 S:\videonest\scripts 的风格）
+# 学习平台 一键启动脚本（参考 S:\videonest\scripts 的风格）
 # 用法：
 #   .\start.ps1                    # 启动（默认自动检测：源码没变就跳过构建）
 #   .\start.ps1 -ForceBuild        # 强制重新构建镜像
 #   .\start.ps1 -SkipBuild         # 强制跳过构建，直接启动（更快）
 #   .\start.ps1 -NoBrowser         # 启动后不自动打开浏览器
 #   .\start.ps1 -HealthTimeout 120 # 修改后端健康检测超时（单位秒，默认90）
-#   .\start.ps1 -HealthUrl "http://127.0.0.1:8888/api/health"
+#   .\start.ps1 -HealthUrl "http://127.0.0.1:8888/healthz"
 #   .\start.ps1 -Quiet             # 精简日志，减少刷屏
 
 param(
@@ -108,7 +108,7 @@ if (-not $MinioConsolePort) { $MinioConsolePort = "9021" }
 
 # 健康地址优先级：传参 > 默认
 if (-not $HealthUrl) {
-    $HealthUrl = "http://127.0.0.1:$BackendPort/api/from/you"
+    $HealthUrl = "http://127.0.0.1:$BackendPort/healthz"
 }
 
 # 3. 检查 Docker 引擎是否可用；不可用时自动拉起 Docker Desktop 并等待
@@ -271,7 +271,7 @@ Write-Host "  启动成功！" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host "  前端页面:  http://localhost:$HttpPort" -ForegroundColor Green
 Write-Host "  后端 API:  http://localhost:$BackendPort"
-Write-Host "  测试账号:  admin / 123456"
+Write-Host "  测试账号:  admin / 123456（首次登录需修改密码）"
 Write-Host "  MySQL:     127.0.0.1:$DbPort  (root / 密码见 .env)"
 Write-Host "  Redis:     127.0.0.1:$RedisPort"
 Write-Host "  MinIO:     http://127.0.0.1:$MinioApiPort  (控制台 http://127.0.0.1:$MinioConsolePort  minioadmin/minioadmin)"

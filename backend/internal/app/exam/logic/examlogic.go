@@ -10,8 +10,8 @@ import (
 
 	"learningplatform/internal/app/class"
 	"learningplatform/internal/app/exam"
-	"learningplatform/internal/app/exam/logic/examrules"
-	"learningplatform/internal/authz"
+	"learningplatform/internal/domain/authz"
+	"learningplatform/internal/domain/examrules"
 	"learningplatform/internal/model"
 	"learningplatform/internal/svc"
 
@@ -404,9 +404,72 @@ func (l *ExamLogic) Submit(examId int64, req *exam.SubmitReq, cu *class.CtxUser)
 	if maxScore <= 0 {
 		maxScore = float64(sumQuestionScores(questions))
 	}
-	l.recordExamScore(e, cu.Id, float64(scoreRes.AutoScore), maxScore, 0)
+	recordExamScore(l.svcCtx, e.ClassId, e.Id, e.Title, cu.Id, float64(scoreRes.AutoScore), maxScore, 0)
 
 	return &exam.SubmitResp{Message: "交卷成功", AutoScore: scoreRes.AutoScore}, nil
+}
+
+// SaveDraft 保存作答草稿。
+//
+// 为什么需要：旧实现里学生答案只存在浏览器内存，超时被系统收卷时
+// 服务端拿到的是空答案 —— 答了一小时，网线一断就是 0 分。
+// 现在前端每 15 秒左右上报一次，收卷时用最后一份草稿判分。
+//
+// 懒开考：历史前端没有"开始考试"入口，直接答题/交卷。
+// 如果这里要求必须先有 started 行，第一份草稿就会 409、自动保存直接失灵。
+// 因此没有记录时在这里补建一行（等价于"开始作答"，时长从此刻算），
+// 已经有记录则绝不会重置 started_at（时长不会被刷新页面续期）。
+func (l *ExamLogic) SaveDraft(examId int64, req *exam.SaveDraftReq, cu *class.CtxUser) (*exam.SaveDraftResp, error) {
+	e, err := l.svcCtx.ExamStore.GetExam(examId)
+	if err != nil {
+		return nil, &class.BizError{Code: http.StatusNotFound, Msg: "考试不存在"}
+	}
+	role, be := class.RequireClassMember(l.svcCtx, e.ClassId, cu)
+	if be != nil {
+		return nil, be
+	}
+	if role == "teacher" || role == "admin" {
+		return nil, &class.BizError{Code: http.StatusForbidden, Msg: "老师无需作答"}
+	}
+
+	sub, err := l.svcCtx.ExamStore.GetMySubmission(examId, cu.Id)
+	if err != nil {
+		return nil, err
+	}
+	if sub != nil && sub.Status != model.SubmitStatusStarted {
+		return nil, &class.BizError{Code: http.StatusConflict, Msg: "考试不在作答状态，草稿已锁定"}
+	}
+
+	now := time.Now()
+	// 时间窗口先判：没开考 / 已结束的考试不应该创建记录
+	if err := windowOf(e).CheckSubmit(now, startedAtOf(sub)); err != nil {
+		return nil, &class.BizError{Code: http.StatusBadRequest, Msg: err.Error()}
+	}
+	if sub == nil {
+		if err := l.svcCtx.ExamStore.StartSubmission(examId, cu.Id, now); err != nil {
+			return nil, err
+		}
+		if sub, err = l.svcCtx.ExamStore.GetMySubmission(examId, cu.Id); err != nil {
+			return nil, err
+		}
+		if sub == nil {
+			return nil, &class.BizError{Code: http.StatusInternalServerError, Msg: "考试状态初始化失败"}
+		}
+	}
+
+	payload, err := json.Marshal(req.Answers)
+	if err != nil {
+		return nil, &class.BizError{Code: http.StatusBadRequest, Msg: "答案格式不正确"}
+	}
+	ok, err := l.svcCtx.ExamStore.SaveDraft(examId, cu.Id, string(payload))
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		// 并发场景：刚好在这期间交卷/收卷了
+		return nil, &class.BizError{Code: http.StatusConflict, Msg: "考试已结束，草稿未保存"}
+	}
+	return &exam.SaveDraftResp{SavedAt: now.Format(time.RFC3339)}, nil
 }
 
 // sumQuestionScores 试卷满分之和（考试没配总分时的兜底）。
@@ -420,14 +483,21 @@ func sumQuestionScores(questions []*model.ExamQuestionRow) int {
 
 // recordExamScore 把考试得分写进成绩册。失败只记日志、不影响交卷本身：
 // 交卷是学生的关键动作，不能因为统计表写失败就回滚整份答卷。
-func (l *ExamLogic) recordExamScore(e *model.ExamRow, userId int64, score, maxScore float64, gradedBy int64) {
-	itemId, err := l.svcCtx.ClassStore.EnsureGradeItem(e.ClassId, "exam", e.Id, e.Title, maxScore)
-	if err != nil {
-		logx.Errorf("写入成绩项失败 exam=%d: %v", e.Id, err)
+//
+// 抽成包级函数是因为超时自动收卷（autosubmit.go）也要写同一张表，
+// 两处口径必须一致（满分取考试设置，缺失时用题目分值之和兜底）。
+func recordExamScore(svcCtx *svc.ServiceContext, classId, examId int64, title string, userId int64, score, maxScore float64, gradedBy int64) {
+	if svcCtx.ClassStore == nil {
+		logx.Errorf("成绩册未初始化，跳过写入 exam=%d", examId)
 		return
 	}
-	if err := l.svcCtx.ClassStore.SetGradeScore(itemId, userId, score, gradedBy); err != nil {
-		logx.Errorf("写入成绩失败 exam=%d user=%d: %v", e.Id, userId, err)
+	itemId, err := svcCtx.ClassStore.EnsureGradeItem(classId, "exam", examId, title, maxScore)
+	if err != nil {
+		logx.Errorf("写入成绩项失败 exam=%d: %v", examId, err)
+		return
+	}
+	if err := svcCtx.ClassStore.SetGradeScore(itemId, userId, score, gradedBy); err != nil {
+		logx.Errorf("写入成绩失败 exam=%d user=%d: %v", examId, userId, err)
 	}
 }
 
@@ -458,12 +528,24 @@ func (l *ExamLogic) Grade(submissionId int64, req *exam.GradeReq, cu *class.CtxU
 	if err := l.svcCtx.ExamStore.GradeSubmission(submissionId, req.TeacherScore, req.Comment, cu.Id); err != nil {
 		return err
 	}
-	// 老师分覆盖自动分：最终成绩以老师批的为准
+	// 老师分覆盖自动分：最终成绩以老师批的为准。
+	// 满分优先用考试设置的总分；考试没配（<=0）时用题目分值之和，
+	// 两者都拿不到才退回 100 —— 否则"录 999 分"会直接把加权总分带飞。
 	maxScore := float64(e.TotalScore)
+	if maxScore <= 0 {
+		questions, _ := l.svcCtx.ExamStore.ListQuestions(e.Id)
+		maxScore = float64(sumQuestionScores(questions))
+	}
 	if maxScore <= 0 {
 		maxScore = 100
 	}
-	l.recordExamScore(e, sub.UserId, float64(req.TeacherScore), maxScore, cu.Id)
+	if float64(req.TeacherScore) > maxScore {
+		return &class.BizError{
+			Code: http.StatusBadRequest,
+			Msg:  "分数不能超过满分 " + strconv.FormatFloat(maxScore, 'f', -1, 64),
+		}
+	}
+	recordExamScore(l.svcCtx, e.ClassId, e.Id, e.Title, sub.UserId, float64(req.TeacherScore), maxScore, cu.Id)
 	return nil
 }
 

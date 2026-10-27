@@ -11,12 +11,14 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
 
 	"learningplatform/internal/app/class"
 	"learningplatform/internal/app/course"
 	"learningplatform/internal/app/user"
-	"learningplatform/internal/authz"
-	"learningplatform/internal/response"
+	"learningplatform/internal/domain/authz"
+	"learningplatform/internal/platform/middleware"
+	"learningplatform/internal/platform/response"
 	"learningplatform/internal/svc"
 
 	"github.com/zeromicro/go-zero/rest/httpx"
@@ -54,6 +56,31 @@ func courseError(r *http.Request, w http.ResponseWriter, err error) {
 	response.WriteError(w, err)
 }
 
+// guardCourseMedia 课程媒体访问校验（视频 / 讲义 / 在线预览）。
+//
+// 与 authorizeCourse 的区别：写操作看"是不是创建者"，媒体看"是不是学习者"——
+// 班内学生也要能看，所以走 course.ResolveMediaAccess 的成员规则。
+// 返回 false 表示已经写好响应，调用方直接 return。
+func guardCourseMedia(w http.ResponseWriter, r *http.Request, svcCtx *svc.ServiceContext, courseId int) bool {
+	actor := user.CurrentUser(r)
+	c, err := course.Store.GetCourse(courseId)
+	if err != nil {
+		courseError(r, w, course.ErrNotFound("课程不存在"))
+		return false
+	}
+	access := course.ResolveMediaAccess(svcCtx, actor, c)
+	if access.Allowed {
+		return true
+	}
+	code := http.StatusForbidden
+	if actor == nil {
+		// 未登录：让前端走"跳转登录"分支，而不是弹一个 403
+		code = http.StatusUnauthorized
+	}
+	courseError(r, w, &course.BizError{Code: code, Msg: access.Reason})
+	return false
+}
+
 // courseOK 成功响应：保持既有接口的"裸 data"结构（前端已按 data.id / data.courses 解析），
 // 只有错误统一成三层。这样本次改造不需要重写全部前端页面。
 func courseOK(r *http.Request, w http.ResponseWriter, data interface{}) {
@@ -67,6 +94,9 @@ func parseJSONBody(r *http.Request, v interface{}) error {
 	defer r.Body.Close()
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		if middleware.BodyTooLarge(err) {
+			return &course.BizError{Code: http.StatusRequestEntityTooLarge, Msg: "请求体过大"}
+		}
 		return err
 	}
 	if len(body) == 0 {
@@ -75,24 +105,52 @@ func parseJSONBody(r *http.Request, v interface{}) error {
 	return json.Unmarshal(body, v)
 }
 
-// uploadQuotaGuard 上传配额：按"用户 + 自然日"限制总上传量。
+// courseIdFromQuery 从 query 取课程 id。
 //
-// 只做一件事：预占 add 字节。超限返回 413 + 中文提示（"今日上传额度不足…"）。
-// 配额未配置（0）或 Redis 不可用时直接放行，绝不因为防护措施挡住正常上传。
-func uploadQuotaGuard(w http.ResponseWriter, r *http.Request, svcCtx *svc.ServiceContext, add int64) bool {
+// 上传类接口要求 ?courseId=N：只有这样才能在解析 multipart 之前完成鉴权。
+// 旧实现先 ParseMultipartForm 再判断"你是不是这门课的主人"，
+// 未授权请求也会先把整个文件落到临时目录（最大 1GB），是可被利用的磁盘/内存消耗点。
+func courseIdFromQuery(w http.ResponseWriter, r *http.Request) (int, bool) {
+	id, err := strconv.Atoi(r.URL.Query().Get("courseId"))
+	if err != nil || id <= 0 {
+		courseError(r, w, course.ErrBadRequest("courseId 必须通过 query 传入且为正整数"))
+		return 0, false
+	}
+	return id, true
+}
+
+// parseMultipartForm 解析表单，并把"超过请求体上限"翻译成 413。
+func parseMultipartForm(w http.ResponseWriter, r *http.Request, maxMemory int64) bool {
+	if err := r.ParseMultipartForm(maxMemory); err != nil {
+		if middleware.BodyTooLarge(err) {
+			courseError(r, w, &course.BizError{Code: http.StatusRequestEntityTooLarge, Msg: "上传内容超过大小上限"})
+			return false
+		}
+		courseError(r, w, course.ErrBadRequest("表单解析失败："+err.Error()))
+		return false
+	}
+	return true
+}
+
+// reserveUploadQuota 预占当天的上传额度，返回"归还函数"。
+//
+// 调用方在后续任何失败路径上调用 release()；上传成功则保留额度。
+// 配额未启用 / Redis 不可用时 release 是空操作，绝不挡住正常上传。
+func reserveUploadQuota(w http.ResponseWriter, r *http.Request, svcCtx *svc.ServiceContext, add int64) (release func(), ok bool) {
+	release = func() {}
 	if svcCtx.Quota == nil || !svcCtx.Quota.Enabled() {
-		return true
+		return release, true
 	}
 	uid := currentUserId(r, svcCtx)
 	if uid <= 0 {
 		// 拿不到用户 id（理论上不会：路由都挂了鉴权中间件）就不限制
-		return true
+		return release, true
 	}
 	if err := svcCtx.Quota.Reserve(uid, add); err != nil {
 		courseError(r, w, err)
-		return false
+		return release, false
 	}
-	return true
+	return func() { svcCtx.Quota.Release(uid, add) }, true
 }
 
 // currentUserId 从会话里取数据库用户 id，取不到返回 0。

@@ -70,7 +70,7 @@ func TestEditCourseLogic_NotFound(t *testing.T) {
 func TestCourseDetailLogic_Success(t *testing.T) {
 	l := NewCourseDetailLogic(context.Background(), newTestSvcCtx())
 
-	resp, err := l.Detail(&course.CourseDetailRequest{Id: 1})
+	resp, err := l.Detail(&course.CourseDetailRequest{Id: 1}, nil)
 	if err != nil {
 		t.Fatalf("期望详情成功，却报错: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestCourseDetailLogic_Success(t *testing.T) {
 // 详情：课程不存在 → 失败
 func TestCourseDetailLogic_NotFound(t *testing.T) {
 	l := NewCourseDetailLogic(context.Background(), newTestSvcCtx())
-	_, err := l.Detail(&course.CourseDetailRequest{Id: 999999})
+	_, err := l.Detail(&course.CourseDetailRequest{Id: 999999}, nil)
 	if err == nil {
 		t.Fatal("期望详情不存在课程时报错，却没报错")
 	}

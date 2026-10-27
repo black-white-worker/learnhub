@@ -70,3 +70,56 @@ func TestSweepOrphans_KeepsYoungUnreferenced(t *testing.T) {
 		t.Fatalf("期望新对象 %s 在安全窗口内保留，却被清理了", youngName)
 	}
 }
+
+// 用例 3：讲义（resources）必须被保留。
+//
+// 这是回归测试：历史实现只收集封面/视频引用，讲义上传 10 分钟后会被
+// 当成孤儿对象删掉，用户看到的是"文件突然 404"。
+func TestSweepOrphans_KeepsCourseResources(t *testing.T) {
+	ctx := newTestSvcCtx()
+	oss := ctx.Oss.(*fakeOss)
+
+	c, err := Store.AddCourse("讲义保留测试课", "", "", "tester")
+	if err != nil {
+		t.Fatalf("造课程失败: %v", err)
+	}
+	objectName := "course/" + strconv.Itoa(c.Id) + "/resources/lecture.pdf"
+	url := "http://fake-minio:9000/learningplatform/" + objectName
+	if _, err := oss.PutObject(context.Background(), objectName, strings.NewReader("pdf"), 3, "application/pdf"); err != nil {
+		t.Fatalf("造讲义对象失败: %v", err)
+	}
+	oss.backdate(objectName, 30*time.Minute) // 超过安全窗口，确保"可被清理"
+
+	if err := Store.AddResource(c.Id, &Resource{
+		Name: "lecture.pdf", Url: url, ObjectName: objectName, Size: 3, Type: "pdf",
+	}); err != nil {
+		t.Fatalf("写讲义引用失败: %v", err)
+	}
+
+	if err := sweepOrphans(ctx); err != nil {
+		t.Fatalf("清理报错: %v", err)
+	}
+
+	if _, ok := oss.objects[objectName]; !ok {
+		t.Fatalf("讲义 %s 被误删了（引用集合漏了 resources）", objectName)
+	}
+}
+
+// 用例 4：白名单之外的目录不清理（宁可留垃圾，不可误删将来新增的对象类型）。
+func TestSweepOrphans_IgnoresUnknownPrefix(t *testing.T) {
+	ctx := newTestSvcCtx()
+	oss := ctx.Oss.(*fakeOss)
+
+	unknown := "course/997/exports/backup.zip"
+	if _, err := oss.PutObject(context.Background(), unknown, strings.NewReader("zip"), 3, "application/zip"); err != nil {
+		t.Fatalf("造对象失败: %v", err)
+	}
+	oss.backdate(unknown, 24*time.Hour)
+
+	if err := sweepOrphans(ctx); err != nil {
+		t.Fatalf("清理报错: %v", err)
+	}
+	if _, ok := oss.objects[unknown]; !ok {
+		t.Fatalf("白名单外的对象 %s 不应被删除", unknown)
+	}
+}

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"learningplatform/internal/oss"
+	"learningplatform/internal/platform/oss"
 )
 
 type fakeOss struct {

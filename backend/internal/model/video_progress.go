@@ -50,42 +50,23 @@ func (m *CourseModel) GetVideoProgress(userId, videoId int64) (*VideoProgressRow
 // SaveVideoProgress 上报一次播放进度。
 //
 // watchedDelta 是"上次上报以来真实播放过的秒数"（前端按 playbackRate 累加，
-// 拖进度条不计入）。这里把增量累加到库里已有的 watched_seconds 上并封顶到时长；
-// 三个数值都用 GREATEST 写入，避免多标签页/乱序请求把进度写小。
+// 拖进度条不计入）。累加、封顶、完成标记都在 NextVideoProgress 这个纯函数里算，
+// 落库用 GREATEST，避免多标签页/乱序请求把进度写小。
+//
+// 性能：改造前是"读一次 → 写一次 → 再读一次"（3 次往返），而这是全站最高频的
+// 写路径（播放器每 15 秒上报一次，100 人在看就是 ~6.7 QPS 的纯写）。
+// 现在写完直接返回本次计算出的状态，去掉最后一次 SELECT，降到 2 次往返。
 func (m *CourseModel) SaveVideoProgress(userId, courseId, videoId int64, position, watchedDelta, duration int) (*VideoProgressRow, error) {
-	if position < 0 {
-		position = 0
-	}
-	if watchedDelta < 0 {
-		watchedDelta = 0
-	}
-	if duration < 0 {
-		duration = 0
-	}
-
 	prev, err := m.GetVideoProgress(userId, videoId)
 	if err != nil {
 		return nil, err
 	}
-	watched := watchedDelta
-	totalDuration := duration
-	if prev != nil {
-		watched = prev.WatchedSeconds + watchedDelta
-		if prev.DurationSeconds > totalDuration {
-			totalDuration = prev.DurationSeconds
-		}
-	}
-	// 观看时长不会超过视频总长（时长未知时不封顶）
-	if totalDuration > 0 && watched > totalDuration {
-		watched = totalDuration
-	}
-	completed := 0
-	if totalDuration > 0 && float64(watched) >= completionRatio*float64(totalDuration) {
-		completed = 1
-	}
-	// 已完成的标记不因后续乱序上报而回退
-	if prev != nil && prev.Completed {
-		completed = 1
+	next := NextVideoProgress(prev, position, watchedDelta, duration)
+	next.UserId = userId
+	next.VideoId = videoId
+	if next.CourseId == 0 {
+		// 首次写入用请求里的课程；重复上报保留库里已有的 course_id（唯一键是 user+video）
+		next.CourseId = courseId
 	}
 
 	_, err = m.conn.ExecCtx(context.Background(),
@@ -96,11 +77,58 @@ func (m *CourseModel) SaveVideoProgress(userId, courseId, videoId int64, positio
 		   watched_seconds  = GREATEST(watched_seconds, VALUES(watched_seconds)),
 		   duration_seconds = GREATEST(duration_seconds, VALUES(duration_seconds)),
 		   completed        = GREATEST(completed, VALUES(completed))`,
-		userId, courseId, videoId, position, watched, totalDuration, completed)
+		next.UserId, next.CourseId, next.VideoId,
+		next.PositionSeconds, next.WatchedSeconds, next.DurationSeconds, boolToTinyint(next.Completed))
 	if err != nil {
 		return nil, err
 	}
-	return m.GetVideoProgress(userId, videoId)
+	return next, nil
+}
+
+// NextVideoProgress 计算一次上报后的进度（纯函数，便于穷举单测）。
+//
+// 规则：
+//   - 观看时长累加，且不超过已知的总时长（时长未知时不封顶）；
+//   - 总时长取历史值与本次上报的较大者（播放器偶尔会上报 0）；
+//   - 完成标记只增不减：后续乱序/重复上报不能把"已看完"改回未看完。
+func NextVideoProgress(prev *VideoProgressRow, position, watchedDelta, duration int) *VideoProgressRow {
+	if position < 0 {
+		position = 0
+	}
+	if watchedDelta < 0 {
+		watchedDelta = 0
+	}
+	if duration < 0 {
+		duration = 0
+	}
+	row := &VideoProgressRow{
+		PositionSeconds: position,
+		WatchedSeconds:  watchedDelta,
+		DurationSeconds: duration,
+	}
+	if prev != nil {
+		row.Id = prev.Id
+		row.CourseId = prev.CourseId
+		row.WatchedSeconds = prev.WatchedSeconds + watchedDelta
+		if prev.DurationSeconds > row.DurationSeconds {
+			row.DurationSeconds = prev.DurationSeconds
+		}
+		row.Completed = prev.Completed
+	}
+	if row.DurationSeconds > 0 && row.WatchedSeconds > row.DurationSeconds {
+		row.WatchedSeconds = row.DurationSeconds
+	}
+	if row.DurationSeconds > 0 && float64(row.WatchedSeconds) >= completionRatio*float64(row.DurationSeconds) {
+		row.Completed = true
+	}
+	return row
+}
+
+func boolToTinyint(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
 }
 
 // ListVideoProgressByCourse 某用户在某课程下的全部进度（课程详情页显示"已看 x/y"用）。

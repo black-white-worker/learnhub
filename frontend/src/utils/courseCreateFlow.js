@@ -33,10 +33,9 @@ export async function uploadCoverFlow(api, form, session, file) {
   const ensured = await ensureCourseCreated(api, form, session)
   if (ensured !== true) return ensured
   const fd = new FormData()
-  fd.append('courseId', session.createdId.value)
   fd.append('file', file)
   try {
-    const res = await api.uploadCourseCover(fd)
+    const res = await api.uploadCourseCover(session.createdId.value, fd)
     session.coverResult.value = res.data
     return { ok: true }
   } catch (e) {
@@ -52,10 +51,9 @@ export async function uploadVideosFlow(api, form, session, files) {
   const ensured = await ensureCourseCreated(api, form, session)
   if (ensured !== true) return ensured
   const fd = new FormData()
-  fd.append('courseId', session.createdId.value)
   files.forEach((v) => fd.append('files', v))
   try {
-    const res = await api.uploadCourseVideos(fd)
+    const res = await api.uploadCourseVideos(session.createdId.value, fd)
     session.videoResult.value = res.data.videos || []
     return { ok: true, count: session.videoResult.value.length }
   } catch (e) {

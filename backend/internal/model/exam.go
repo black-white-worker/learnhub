@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
@@ -356,27 +357,90 @@ type OverdueSubmission struct {
 	DurationMin  int          `db:"duration_minutes"`
 	AllowLate    int          `db:"allow_late"`
 	LateDeadline sql.NullTime `db:"late_deadline"`
+	// Answers 最后一次草稿。扫描时一起带出来，收卷时不用再按 submission 回查一次。
+	Answers string `db:"answers"`
+	// 以下字段用于超时收卷时按草稿判分、写成绩册
+	ClassId    int64  `db:"class_id"`
+	Title      string `db:"title"`
+	TotalScore int    `db:"total_score"`
 }
 
 // ListStartedSubmissions 列出所有"考试中"的记录（后台自动收卷扫描用）。
+//
+// 走 idx_status_started(status, started_at)：只扫未交卷的行，
+// 而不是每次全表扫 exam_submissions。
 func (m *ExamModel) ListStartedSubmissions() ([]*OverdueSubmission, error) {
 	var rows []*OverdueSubmission
 	err := m.conn.QueryRowsCtx(context.Background(), &rows,
-		`SELECT s.exam_id, s.user_id, s.id AS submission_id, s.started_at,
-		        e.start_at, e.end_at, e.duration_minutes, e.allow_late, e.late_deadline
+		`SELECT s.exam_id, s.user_id, s.id AS submission_id, s.started_at, s.answers,
+		        e.start_at, e.end_at, e.duration_minutes, e.allow_late, e.late_deadline,
+		        e.class_id, e.title, e.total_score
 		   FROM exam_submissions s JOIN exams e ON e.id = s.exam_id
 		  WHERE s.status = 'started'`)
 	return rows, err
 }
 
-// MarkExpired 超时强制收卷：status='expired'，没有作答的按 0 分记。
-func (m *ExamModel) MarkExpired(submissionId int64) error {
-	_, err := m.conn.ExecCtx(context.Background(),
+// ListQuestionsByExamIds 批量取多场考试的题目，按 exam_id 分组返回。
+//
+// 自动收卷一轮可能同时处理几十份超时答卷，其中很多属于同一场考试。
+// 逐份调用 ListQuestions 会把同一份试卷重复查 N 次；这里一次 IN 查询取回全部，
+// 收卷循环里只在内存里查表。
+func (m *ExamModel) ListQuestionsByExamIds(examIds []int64) (map[int64][]*ExamQuestionRow, error) {
+	out := make(map[int64][]*ExamQuestionRow, len(examIds))
+	if len(examIds) == 0 {
+		return out, nil
+	}
+	holders := strings.TrimSuffix(strings.Repeat("?,", len(examIds)), ",")
+	args := make([]interface{}, 0, len(examIds))
+	for _, id := range examIds {
+		args = append(args, id)
+	}
+	var rows []*ExamQuestionRow
+	err := m.conn.QueryRowsCtx(context.Background(), &rows,
+		`SELECT id, exam_id, type, stem, options, answer, score, order_num, required, created_at
+		   FROM exam_questions
+		  WHERE exam_id IN (`+holders+`)
+		  ORDER BY exam_id, order_num ASC, id ASC`, args...)
+	if err != nil {
+		return out, err
+	}
+	for _, q := range rows {
+		out[q.ExamId] = append(out[q.ExamId], q)
+	}
+	return out, nil
+}
+
+// ExpireSubmission 超时强制收卷：写入 status='expired' 并按最后一次草稿记自动分。
+//
+// 与旧实现的区别：旧版只把状态改成 expired、分数留空，学生答了但没点交卷就是 0 分；
+// 现在前端会定时上报草稿，收卷时按草稿判分，网络中断不再等于白考。
+//
+// 返回 true 表示本次确实完成了状态迁移；false 表示这期间学生已经交卷
+// （条件更新 0 行），调用方不能再拿草稿覆盖他的成绩。
+func (m *ExamModel) ExpireSubmission(submissionId int64, autoScore int) (bool, error) {
+	res, err := m.conn.ExecCtx(context.Background(),
 		`UPDATE exam_submissions
-		    SET status='expired', submitted_at=NOW(),
+		    SET status='expired', submitted_at=NOW(), auto_score=?,
 		        answers = CASE WHEN answers IS NULL THEN '{}' ELSE answers END
-		  WHERE id=? AND status='started'`, submissionId)
-	return err
+		  WHERE id=? AND status='started'`, autoScore, submissionId)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// SaveDraft 保存作答草稿（考试进行中）。
+// 只有 status='started' 的行会被更新；已交卷/已超时返回 false，前端据此提示"已锁定"。
+func (m *ExamModel) SaveDraft(examId, userId int64, answers string) (bool, error) {
+	res, err := m.conn.ExecCtx(context.Background(),
+		`UPDATE exam_submissions SET answers=? WHERE exam_id=? AND user_id=? AND status='started'`,
+		answers, examId, userId)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
 }
 
 // AddViolation 记录一次违纪（切屏/离开全屏）。前端上报，服务端累加，

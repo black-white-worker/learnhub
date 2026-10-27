@@ -128,3 +128,23 @@ func (l *Limiter) Reserve(userId, add int64) error {
 	}
 	return nil
 }
+
+// Release 归还预占的额度。
+//
+// 什么时候需要：handler 先按文件大小预占，随后鉴权、解析、上传任何一步失败，
+// 都应该把额度还回去；否则用户一天失败几次就"额度用光"了（旧实现的问题）。
+// 跨天时 key 已过期，Decrby 会留下负数；这里把它归零，
+// 避免"昨天失败的预占扣掉今天的额度"。
+func (l *Limiter) Release(userId, add int64) {
+	if !l.Enabled() || userId <= 0 || add <= 0 {
+		return
+	}
+	key := QuotaKey(userId, time.Now())
+	n, err := l.rdb.Decrby(key, add)
+	if err != nil {
+		return
+	}
+	if n < 0 {
+		_ = l.rdb.Setex(key, "0", int(keyTTL.Seconds()))
+	}
+}

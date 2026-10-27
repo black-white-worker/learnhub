@@ -46,10 +46,9 @@ async function doUpload(file) {
   if (!file) return
   uploading.value = true
   const fd = new FormData()
-  fd.append('courseId', props.courseId)
   fd.append('file', file)
   try {
-    await uploadCourseResource(fd)
+    await uploadCourseResource(props.courseId, fd)
     ElMessage.success('资源上传成功')
     load()
   } catch (e) {

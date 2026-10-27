@@ -3,7 +3,7 @@ package course
 import (
 	"io"
 
-	"learningplatform/internal/oss"
+	"learningplatform/internal/platform/oss"
 )
 
 // ===== 课程创建接口 POST /api/course/create =====
@@ -163,6 +163,11 @@ type CourseDetailResponse struct {
 	CoverUrl      string   `json:"coverUrl"`
 	CoverThumbUrl string   `json:"coverThumbUrl"`
 	Videos        []*Video `json:"videos"`
+	// CanWatch 当前访问者能否观看本课程媒体（视频/讲义）。
+	// 未登录、或课程绑定班级但访问者不在班里时为 false，此时 Video.Url 为空。
+	CanWatch bool `json:"canWatch"`
+	// MediaReason 不能观看时的可读原因（可直接展示）。
+	MediaReason string `json:"mediaReason,omitempty"`
 }
 
 // ===== 课程删除接口 DELETE /api/course/delete/:id =====

@@ -20,3 +20,8 @@ var ErrBadCredentials = &AuthError{Code: 401, Msg: "用户名或密码错误"}
 
 // ErrTooManyAttempts 登录失败次数过多（429），锁定 10 分钟。
 var ErrTooManyAttempts = &AuthError{Code: 429, Msg: "登录失败次数过多，请 10 分钟后再试"}
+
+// NewAuthError 构造一个带状态码的认证/账号错误（改密、重置密码等场景用）。
+func NewAuthError(code int, msg string) *AuthError {
+	return &AuthError{Code: code, Msg: msg}
+}

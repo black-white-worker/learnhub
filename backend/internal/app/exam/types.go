@@ -38,6 +38,17 @@ type SubmitResp struct {
 	AutoScore int    `json:"autoScore,omitempty"`
 }
 
+// SaveDraftReq 保存作答草稿（考试进行中，前端每 15 秒左右上报一次）。
+// 与交卷的区别：草稿不改状态、不判分，只覆盖 answers 字段。
+type SaveDraftReq struct {
+	Answers map[string]string `json:"answers"`
+}
+
+// SaveDraftResp 草稿保存结果。
+type SaveDraftResp struct {
+	SavedAt string `json:"savedAt"` // RFC3339
+}
+
 // GradeReq 老师手批
 type GradeReq struct {
 	TeacherScore int    `json:"teacherScore"`

@@ -3,7 +3,7 @@ package course
 import (
 	"testing"
 
-	"learningplatform/internal/authz"
+	"learningplatform/internal/domain/authz"
 	"learningplatform/internal/model"
 )
 

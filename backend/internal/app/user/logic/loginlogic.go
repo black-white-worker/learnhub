@@ -75,8 +75,9 @@ func (l *LoginLogic) Login(req *user.LoginRequest) (resp *user.LoginResponse, er
 	}
 
 	// 4. 会话信息序列化为 JSON 写入 Redis
-	// key = login:token:{token}，value = {"username":..., "nickname":...}
-	session := model.SessionUser{Username: u.Username, Nickname: u.Nickname, Role: u.Role}
+	// key = login:token:{token}，value = {"id":..., "username":..., "nickname":..., "role":...}
+	// id 带上后，业务接口不必每请求再查一次 users 表确认身份。
+	session := model.SessionUser{Id: u.Id, Username: u.Username, Nickname: u.Nickname, Role: u.Role}
 	data, err := json.Marshal(session)
 	if err != nil {
 		return nil, errors.New("会话序列化失败")
@@ -85,11 +86,13 @@ func (l *LoginLogic) Login(req *user.LoginRequest) (resp *user.LoginResponse, er
 		return nil, errors.New("登录状态写入失败")
 	}
 
-	// 5. 返回登录结果（带上角色，前端据此控制"创建班级"等入口）
+	// 5. 返回登录结果（带上角色，前端据此控制"创建班级"等入口；
+	//    mustChangePassword 让前端在进入首页前拦住初始密码用户）
 	return &user.LoginResponse{
-		Token:    token,
-		Username: req.Username,
-		Role:     u.Role,
+		Token:              token,
+		Username:           req.Username,
+		Role:               u.Role,
+		MustChangePassword: u.MustChangePassword,
 	}, nil
 }
 

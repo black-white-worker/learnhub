@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
@@ -143,6 +144,30 @@ func (m *ClassModel) UnbindCourse(classId, courseId int64) error {
 	_, err := m.conn.ExecCtx(context.Background(),
 		"DELETE FROM class_courses WHERE class_id=? AND course_id=?", classId, courseId)
 	return err
+}
+
+// CourseEnrollmentStats 课程的教学范围：
+//   - bound 这门课被多少个班级绑定（0 = 独立公开课）
+//   - mine  当前用户加入了其中多少个班级
+//
+// 用于媒体访问控制（见 course/media_access.go）：一门课只要被班级绑定，
+// 就要求访问者是其中某个班的成员，否则只有创建者/管理员能看。
+func (m *ClassModel) CourseEnrollmentStats(courseId, userId int64) (bound, mine int, err error) {
+	var row struct {
+		Bound int `db:"bound"`
+		Mine  int `db:"mine"`
+	}
+	err = m.conn.QueryRowCtx(context.Background(), &row, `
+		SELECT
+		  (SELECT COUNT(*) FROM class_courses WHERE course_id = ?) AS bound,
+		  (SELECT COUNT(*) FROM class_courses cc
+		     JOIN class_members cm ON cm.class_id = cc.class_id
+		    WHERE cc.course_id = ? AND cm.user_id = ?) AS mine`,
+		courseId, courseId, userId)
+	if err != nil {
+		return 0, 0, err
+	}
+	return row.Bound, row.Mine, nil
 }
 
 func (m *ClassModel) ListClassCourseIds(classId int64) ([]int64, error) {
@@ -659,6 +684,60 @@ func (m *ClassModel) ListReadUserIds(announcementId int64) ([]int64, error) {
 	err := m.conn.QueryRowsCtx(context.Background(), &ids,
 		"SELECT user_id FROM announcement_reads WHERE announcement_id=?", announcementId)
 	return ids, err
+}
+
+// AnnouncementReadStat 一条公告的已读聚合结果。
+type AnnouncementReadStat struct {
+	AnnouncementId int64
+	ReadCount      int
+	ReadByMe       bool
+}
+
+// AnnouncementReadStats 批量取"某页公告"的已读人数 + 我是否已读。
+//
+// 为什么提供批量接口：列表页原来对每条公告各查一次 announcement_reads（N+1），
+// 一个班 20 条公告就是 20 次往返，还额外把每条的完整已读名单拉回 Go 再遍历。
+// 这里用一条 GROUP BY 把整页的计数与"我是否读过"一次算完：
+//   - 行数从 O(N×已读人数) 降到 O(N)；
+//   - 往返从 N 次降到 1 次；
+//   - 走 uk_ann_user(announcement_id, user_id) 的 IN 范围扫描。
+//
+// 返回 map，调用方按需取值；没有已读记录的公告不会出现在 map 里（即 0 / false）。
+func (m *ClassModel) AnnouncementReadStats(userId int64, announcementIds []int64) (map[int64]AnnouncementReadStat, error) {
+	out := make(map[int64]AnnouncementReadStat, len(announcementIds))
+	if len(announcementIds) == 0 {
+		return out, nil
+	}
+	holders := strings.TrimSuffix(strings.Repeat("?,", len(announcementIds)), ",")
+	args := make([]interface{}, 0, len(announcementIds)+1)
+	args = append(args, userId)
+	for _, id := range announcementIds {
+		args = append(args, id)
+	}
+	var rows []struct {
+		AnnouncementId int64 `db:"announcement_id"`
+		ReadCount      int   `db:"read_count"`
+		ReadByMe       int   `db:"read_by_me"`
+	}
+	// 注意：SELECT 里的占位符在 SQL 文本中先于 WHERE，参数顺序必须是 userId 在前。
+	err := m.conn.QueryRowsCtx(context.Background(), &rows,
+		`SELECT announcement_id,
+		        COUNT(*) AS read_count,
+		        MAX(CASE WHEN user_id = ? THEN 1 ELSE 0 END) AS read_by_me
+		   FROM announcement_reads
+		  WHERE announcement_id IN (`+holders+`)
+		  GROUP BY announcement_id`, args...)
+	if err != nil {
+		return out, err
+	}
+	for _, r := range rows {
+		out[r.AnnouncementId] = AnnouncementReadStat{
+			AnnouncementId: r.AnnouncementId,
+			ReadCount:      r.ReadCount,
+			ReadByMe:       r.ReadByMe == 1,
+		}
+	}
+	return out, nil
 }
 
 // CountUnreadByClass 返回当前用户在某班未读公告数

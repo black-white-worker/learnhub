@@ -87,3 +87,52 @@ func TestAuthMiddleware_ValidToken(t *testing.T) {
 		t.Fatalf("context 里的会话不对: %+v", got)
 	}
 }
+
+// 测试用例 4：可选登录——没有 token 也放行，但 CurrentUser 为空。
+// 公开接口（课程详情）靠它区分"登录了吗"，同时不能把游客挡在门外。
+func TestAuthMiddleware_OptionalNoToken(t *testing.T) {
+	m := NewAuthMiddleware(newTestSvcCtx())
+	req := httptest.NewRequest(http.MethodGet, "/api/course/detail/1", nil)
+	w := httptest.NewRecorder()
+
+	called := false
+	var userInCtx *model.SessionUser
+	m.HandleOptional(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		userInCtx = CurrentUser(r)
+	})(w, req)
+
+	if !called {
+		t.Fatal("可选登录在没有 token 时也必须放行")
+	}
+	if w.Code == http.StatusUnauthorized {
+		t.Fatal("可选登录不应返回 401")
+	}
+	if userInCtx != nil {
+		t.Fatalf("没有 token 时不应注入用户: %+v", userInCtx)
+	}
+}
+
+// 测试用例 5：可选登录——带有效 token 时识别用户。
+func TestAuthMiddleware_OptionalValidToken(t *testing.T) {
+	svcCtx := newTestSvcCtx()
+	token := "optional-token-" + strings.Repeat("b", 8)
+	data, _ := json.Marshal(model.SessionUser{Username: "admin", Nickname: "管理员", Role: "admin"})
+	if err := svcCtx.Redis.Setex(SessionKeyPrefix+token, string(data), 3600); err != nil {
+		t.Fatalf("写入 Redis 会话失败: %v", err)
+	}
+
+	m := NewAuthMiddleware(svcCtx)
+	req := httptest.NewRequest(http.MethodGet, "/api/course/detail/1", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+
+	var got *model.SessionUser
+	m.HandleOptional(func(w http.ResponseWriter, r *http.Request) {
+		got = CurrentUser(r)
+	})(w, req)
+
+	if got == nil || got.Username != "admin" {
+		t.Fatalf("有效 token 应被识别，实际: %+v", got)
+	}
+}

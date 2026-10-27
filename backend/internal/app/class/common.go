@@ -16,8 +16,9 @@ import (
 	"time"
 
 	"learningplatform/internal/app/user"
-	"learningplatform/internal/authz"
-	"learningplatform/internal/response"
+	"learningplatform/internal/domain/authz"
+	"learningplatform/internal/platform/middleware"
+	"learningplatform/internal/platform/response"
 	"learningplatform/internal/svc"
 
 	"github.com/zeromicro/go-zero/rest/pathvar"
@@ -28,10 +29,16 @@ import (
 // bool/int 零值和 string 空串都会触发 "field xxx is not set"，
 // 前端少传一个可选字段就 400。这里直接 json.Decoder，不做 required 校验，
 // 由 logic 层自己判断必填字段。
+//
+// 请求体大小由 middleware.BodyLimit 统一限制，这里只负责把"超限"翻译成 413，
+// 而不是笼统的 500。
 func ParseJSON(r *http.Request, v interface{}) error {
 	defer r.Body.Close()
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		if middleware.BodyTooLarge(err) {
+			return &BizError{Code: http.StatusRequestEntityTooLarge, Msg: "请求体过大"}
+		}
 		return err
 	}
 	if len(body) == 0 {
@@ -64,15 +71,23 @@ type CtxUser struct {
 	Id       int64
 }
 
-// CurrentUser 解析登录用户，失败返回 *BizError（401/500），由 handler 统一写响应
+// CurrentUser 解析登录用户，失败返回 *BizError（401/500），由 handler 统一写响应。
+//
+// 性能：会话（Redis）里已带 id 时直接用，不再每请求查一次 users 表。
+// 只有滚动发布前写入的老会话（id=0）才回落到 GetIdByUsername，
+// 这样上线新版本不会要求所有人重新登录。
 func CurrentUser(r *http.Request, svcCtx *svc.ServiceContext) (*CtxUser, *BizError) {
 	u := user.CurrentUser(r)
 	if u == nil {
 		return nil, &BizError{Code: http.StatusUnauthorized, Msg: "未登录"}
 	}
-	uid, err := svcCtx.UserStore.GetIdByUsername(u.Username)
-	if err != nil {
-		return nil, &BizError{Code: http.StatusInternalServerError, Msg: "用户不存在"}
+	uid := u.Id
+	if uid <= 0 {
+		var err error
+		uid, err = svcCtx.UserStore.GetIdByUsername(u.Username)
+		if err != nil {
+			return nil, &BizError{Code: http.StatusInternalServerError, Msg: "用户不存在"}
+		}
 	}
 	role := u.Role
 	if role == "" {

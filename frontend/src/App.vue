@@ -3,7 +3,7 @@ import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute, RouterView } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Reading, Notebook, EditPen, Collection, ArrowDown, User, Bell } from '@element-plus/icons-vue'
-import axios from 'axios'
+import { logout as apiLogout, fetchInfo, fetchNotifications } from './api/index.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -11,6 +11,8 @@ const route = useRoute()
 // 当前登录用户（登录成功后由 LoginView 写入 localStorage）
 const username = ref(localStorage.getItem('username') || '')
 const userRole = ref(localStorage.getItem('role') || '')
+// 初始账号 / 管理员重置密码后必须先改密，顶栏常驻提示
+const mustChangePassword = ref(false)
 
 // 路由切换时同步登录状态：
 watch(
@@ -87,13 +89,39 @@ function onUserCommand(cmd) {
   }
 }
 
-function logout() {
+// 退出登录：先让后端删掉 Redis 会话，再清本地。
+// 只清 localStorage 的话 token 在服务端还能用满 24 小时（账号被盗时尤其危险）。
+async function logout() {
+  try {
+    await apiLogout()
+  } catch {
+    // 网络失败也要允许本地退出，服务端会话靠 TTL 兜底
+  }
   localStorage.removeItem('token')
   localStorage.removeItem('username')
   localStorage.removeItem('role')
   username.value = ''
+  userRole.value = ''
+  mustChangePassword.value = false
   ElMessage.success('已退出登录')
   router.push('/')
+}
+
+// 从服务端刷新会话：角色 / 是否必须改密以数据库为准，
+// 避免管理员改完角色后前端还按旧 localStorage 渲染入口。
+async function refreshSession() {
+  if (!localStorage.getItem('token')) return
+  try {
+    const res = await fetchInfo()
+    const info = res.data || {}
+    username.value = info.username || ''
+    userRole.value = info.role || 'student'
+    mustChangePassword.value = Boolean(info.mustChangePassword)
+    localStorage.setItem('username', username.value)
+    localStorage.setItem('role', userRole.value)
+  } catch {
+    // 401 已由拦截器统一跳登录，其余错误保持本地状态
+  }
 }
 
 // ===== 未读消息数（顶栏铃铛红点）=====
@@ -102,20 +130,22 @@ let pollTimer = null
 async function loadUnread() {
   if (!username.value) { unreadCount.value = 0; return }
   try {
-    const token = localStorage.getItem('token')
-    const r = await axios.get('/api/notifications', {
-      headers: { Authorization: 'Bearer ' + token },
-    })
+    const r = await fetchNotifications()
     unreadCount.value = r.data?.unread || 0
   } catch {
     // 静默失败，不打扰用户
   }
 }
 onMounted(() => {
+  refreshSession()
   loadUnread()
+  window.addEventListener('dsh:session-updated', refreshSession)
   pollTimer = setInterval(loadUnread, 60000) // 每 60s 拉一次
 })
-onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
+onUnmounted(() => {
+  if (pollTimer) clearInterval(pollTimer)
+  window.removeEventListener('dsh:session-updated', refreshSession)
+})
 watch(username, loadUnread)
 </script>
 
@@ -187,6 +217,12 @@ watch(username, loadUnread)
         </div>
       </div>
     </el-header>
+
+    <!-- 初始密码 / 管理员重置密码后的强制改密提示 -->
+    <div v-if="mustChangePassword" class="pwd-alert">
+      <span>当前账号仍在使用初始密码或管理员重置的临时密码，请尽快修改。</span>
+      <el-button link type="primary" @click="router.push('/profile')">去修改</el-button>
+    </div>
 
     <!-- 内容区 -->
     <el-main class="main">
@@ -320,6 +356,18 @@ watch(username, loadUnread)
 /* ===== 内容区 / 页脚 ===== */
 .main {
   padding: 0;
+}
+
+.pwd-alert {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+  color: #92400e;
+  background: #fffbeb;
+  border-bottom: 1px solid #fde68a;
 }
 
 .footer {

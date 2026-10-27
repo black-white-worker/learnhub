@@ -17,12 +17,6 @@ const routes = [
     meta: { title: '首页' },
   },
   {
-    path: '/about',
-    name: 'about',
-    component: () => import('../views/AboutView.vue'),
-    meta: { title: '关于' },
-  },
-  {
     path: '/login',
     name: 'login',
     component: () => import('../views/LoginView.vue'),
@@ -50,13 +44,14 @@ const routes = [
     path: '/course/:id/watch/:videoId',
     name: 'course-watch',
     component: () => import('../views/CourseWatchView.vue'),
-    meta: { title: '课程学习' },
+    // 视频需要登录 + 选课关系，未登录先在路由层拦下，避免进去吃 401
+    meta: { title: '课程学习', requiresAuth: true },
   },
   {
     path: '/course/:id/resources',
     name: 'course-resources',
     component: () => import('../views/CourseResourcesView.vue'),
-    meta: { title: '课程资源' },
+    meta: { title: '课程资源', requiresAuth: true },
   },
   {
     path: '/course/:id',

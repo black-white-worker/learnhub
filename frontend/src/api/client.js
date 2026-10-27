@@ -89,6 +89,18 @@ const client = axios.create({
 
 attachResponseInterceptor(client, { unwrap: true })
 
+// ===== 4. 老代码用的 rawClient：同一套拦截器，但保留 axios 原始响应 =====
+//
+// 历史页面都按 `res.data.xxx` 取值，一次性改成解包版会牵动 19 个视图。
+// 这里提供一个"不自动解包"的实例，让所有请求仍然只经过一份拦截器实现
+// （token 注入、401 跳转、错误消息提取），新代码继续用上面的 client。
+export const rawClient = axios.create({
+  baseURL: '/api',
+  timeout: 20000,
+})
+
+attachResponseInterceptor(rawClient, { unwrap: false })
+
 // 下载文件（成绩单 CSV 等）：必须走 blob，不能走自动解包
 export async function downloadFile(path, fallbackName = 'download') {
   const res = await axios.get(path, { responseType: 'blob', timeout: 60000 })

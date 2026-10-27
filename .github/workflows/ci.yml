@@ -1,13 +1,21 @@
 name: CI
 
-# 提交/PR 时跑：后端编译 + 单测（含 go vet），前端构建 + 前端单测。
-# 需要 MySQL/Redis 的集成测试在包内用 TestMain 探测依赖，连不上会整体 skip，
-# 所以这里不额外起容器也能绿；需要真跑集成测试时在本地 docker compose 起服务即可。
+# 提交/PR 时跑：
+#   后端 → 编译、vet、gofmt、带 MySQL/Redis 的集成测试、覆盖率
+#   前端 → 单测 + 构建（构建同时校验所有 .vue 模板）
+#   compose → 配置语法校验
+#
+# 集成测试默认连 127.0.0.1:3316 / 6381，与 service containers 对齐；
+# 本机没有依赖时这些用例会自动 skip，所以本地 `go test ./...` 也是绿的。
 
 on:
   push:
     branches: ['**']
   pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   backend:
@@ -16,6 +24,31 @@ jobs:
     defaults:
       run:
         working-directory: backend
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: Java666
+          MYSQL_DATABASE: learningplatform
+        ports:
+          - 3316:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -uroot -pJava666 --silent"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+      redis:
+        image: redis:7.4-alpine
+        command: ['redis-server', '--requirepass', 'learningplatform_redis_2026']
+        ports:
+          - 6381:6379
+        options: >-
+          --health-cmd="redis-cli -a learningplatform_redis_2026 ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+
     steps:
       - uses: actions/checkout@v4
 
@@ -28,21 +61,47 @@ jobs:
         run: go mod download
 
       - name: 编译
-        run: go build ./...
+        run: go build ./cmd/api
 
       - name: 静态检查
         run: go vet ./...
 
-      - name: 单元测试
-        run: go test ./... -race -count=1
-
-      - name: 格式检查（只报告，不阻断）
+      - name: 格式检查
         run: |
-          out=$(gofmt -l .)
-          if [ -n "$out" ]; then
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
             echo "以下文件未通过 gofmt："
-            echo "$out"
+            echo "$unformatted"
+            exit 1
           fi
+
+      # 集成测试要真表结构，按 V 号顺序应用迁移脚本（不依赖 flyway 二进制）
+      - name: 应用数据库迁移
+        working-directory: .
+        run: |
+          if ! command -v mysql >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y mysql-client
+          fi
+          for f in $(ls backend/deploy/sql/migration/V*.sql | sort -V); do
+            echo "==> $f"
+            mysql -h127.0.0.1 -P3316 -uroot -pJava666 learningplatform < "$f"
+          done
+
+      - name: 单元 + 集成测试
+        env:
+          TEST_MYSQL_DSN: root:Java666@tcp(127.0.0.1:3316)/learningplatform?charset=utf8mb4&parseTime=true&loc=Local
+          TEST_REDIS_PASS: learningplatform_redis_2026
+        run: go test ./... -race -count=1 -coverprofile=coverage.out -covermode=atomic
+
+      - name: 覆盖率摘要
+        run: go tool cover -func=coverage.out | tail -n 20
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-coverage
+          path: backend/coverage.out
+          if-no-files-found: ignore
 
   frontend:
     name: 前端（Vue）
@@ -62,8 +121,18 @@ jobs:
       - name: 依赖
         run: npm ci
 
-      - name: 构建（顺带完成模板/语法校验）
-        run: npx vite build
-
       - name: 单元测试
         run: npm test
+
+      - name: 构建（顺带完成模板/语法校验）
+        run: npm run build
+
+  compose:
+    name: Compose 配置校验
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 用模板生成 .env 并校验
+        run: |
+          cp .env.example .env
+          docker compose config -q

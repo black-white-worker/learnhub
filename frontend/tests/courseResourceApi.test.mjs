@@ -12,7 +12,7 @@ import request, {
 
 const calls = []
 request.interceptors.request.use((config) => {
-  calls.push({ method: String(config.method).toLowerCase(), url: config.url })
+  calls.push({ method: String(config.method).toLowerCase(), url: config.url, params: config.params })
   throw new Error('intercepted')
 })
 
@@ -24,11 +24,13 @@ async function expectReject(p) {
   }
 }
 
-test('uploadCourseResource(FormData) → POST /course/upload/resource', async () => {
-  await expectReject(uploadCourseResource(new FormData()))
+test('uploadCourseResource(3, FormData) → POST /course/upload/resource?courseId=3', async () => {
+  await expectReject(uploadCourseResource(3, new FormData()))
   const last = calls[calls.length - 1]
   assert.equal(last.method, 'post')
   assert.equal(last.url, '/course/upload/resource')
+  // courseId 必须走 query：后端要先鉴权、再读 body
+  assert.deepEqual(last.params, { courseId: 3 })
 })
 
 test('fetchCourseResources(3) → GET /course/resources/3', async () => {

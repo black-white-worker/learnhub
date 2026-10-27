@@ -8,7 +8,7 @@ import (
 
 	"learningplatform/internal/app/user"
 	"learningplatform/internal/app/user/logic"
-	"learningplatform/internal/response"
+	"learningplatform/internal/platform/response"
 	"learningplatform/internal/svc"
 
 	"github.com/zeromicro/go-zero/rest/httpx"

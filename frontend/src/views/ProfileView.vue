@@ -1,8 +1,9 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
+import { changePassword } from '../api/index.js'
 
 const router = useRouter()
 const profile = ref({ username: '', nickname: '', role: '' })
@@ -109,6 +110,40 @@ onMounted(() => {
   load()
   loadAssignments()
 })
+
+// ===== 修改密码 =====
+// 初始账号 / 管理员重置密码后，顶栏会常驻提示引导到本页。
+const pwdForm = reactive({ oldPassword: '', newPassword: '', confirm: '' })
+const pwdSaving = ref(false)
+
+async function submitPassword() {
+  if (pwdForm.newPassword.length < 6) {
+    ElMessage.warning('新密码至少 6 位')
+    return
+  }
+  if (pwdForm.newPassword !== pwdForm.confirm) {
+    ElMessage.warning('两次输入的新密码不一致')
+    return
+  }
+  pwdSaving.value = true
+  try {
+    await changePassword({
+      oldPassword: pwdForm.oldPassword,
+      newPassword: pwdForm.newPassword,
+    })
+    ElMessage.success('密码已更新')
+    pwdForm.oldPassword = ''
+    pwdForm.newPassword = ''
+    pwdForm.confirm = ''
+    // 通知 App.vue 重新拉一次会话，收起"必须改密"提示
+    window.dispatchEvent(new Event('dsh:session-updated'))
+    load()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.message || '修改失败，请检查原密码')
+  } finally {
+    pwdSaving.value = false
+  }
+}
 </script>
 
 <template>
@@ -133,6 +168,30 @@ onMounted(() => {
         </el-button>
         <el-alert v-else type="success" :closable="false" title="申请已提交，请等待管理员审批" />
       </div>
+    </el-card>
+
+    <!-- 修改密码：必须提供原密码，避免 token 泄露后被直接改密 -->
+    <el-card class="pwd-card">
+      <template #header>
+        <div class="notify-head">
+          <b>修改密码</b>
+          <el-tag v-if="profile.mustChangePassword" type="warning" size="small">建议立即修改</el-tag>
+        </div>
+      </template>
+      <el-form label-width="88px" @submit.prevent>
+        <el-form-item label="原密码">
+          <el-input v-model="pwdForm.oldPassword" type="password" show-password autocomplete="current-password" />
+        </el-form-item>
+        <el-form-item label="新密码">
+          <el-input v-model="pwdForm.newPassword" type="password" show-password autocomplete="new-password" placeholder="至少 6 位" />
+        </el-form-item>
+        <el-form-item label="确认新密码">
+          <el-input v-model="pwdForm.confirm" type="password" show-password autocomplete="new-password" />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="pwdSaving" @click="submitPassword">保存新密码</el-button>
+        </el-form-item>
+      </el-form>
     </el-card>
 
     <!-- 我的作业：跨班级聚合，按状态一眼看出哪些还没交 -->
@@ -201,6 +260,7 @@ onMounted(() => {
 .profile-page { padding: 24px; max-width: 640px; margin: 0 auto; }
 .profile-card { padding: 12px; margin-bottom: 16px; }
 .apply-box { margin-top: 16px; }
+.pwd-card { padding: 12px; margin-bottom: 16px; }
 .notify-card { padding: 12px; }
 .assign-card { padding: 12px; margin-bottom: 16px; }
 .assign-list { display: flex; flex-direction: column; gap: 8px; }

@@ -121,14 +121,16 @@ func (l *ListLogic) List(page, size int) (resp *course.ListResponse, err error) 
 			return nil, 0, err
 		}
 		// model.CourseRow -> course.Course
+		bucket := l.svcCtx.Config.Minio.Bucket
 		out := make([]*course.Course, 0, len(rows))
 		for _, r := range rows {
 			out = append(out, &course.Course{
 				Id: int(r.Id), Name: r.Name, Intro: r.Intro, Teacher: r.Teacher,
 				CreatedBy: r.CreatedBy,
-				// 私有桶开启时封面也要预签名，否则课程卡片的图会 403
-				CoverUrl:      course.MediaURL(l.svcCtx, objectNameOfURL(r.CoverUrl), r.CoverUrl),
-				CoverThumbUrl: course.MediaURL(l.svcCtx, objectNameOfURL(r.CoverThumbUrl), r.CoverThumbUrl),
+				// 私有桶开启时封面也要预签名，否则课程卡片的图会 403。
+				// 封面是公开的宣传素材，不参与媒体鉴权。
+				CoverUrl:      course.MediaURL(l.svcCtx, course.ObjectNameFromURL(r.CoverUrl, bucket), r.CoverUrl),
+				CoverThumbUrl: course.MediaURL(l.svcCtx, course.ObjectNameFromURL(r.CoverThumbUrl, bucket), r.CoverThumbUrl),
 			})
 		}
 		return out, t, nil

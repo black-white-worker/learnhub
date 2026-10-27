@@ -11,9 +11,9 @@ import (
 
 	"learningplatform/internal/app/class"
 	"learningplatform/internal/app/course"
-	"learningplatform/internal/authz"
+	"learningplatform/internal/domain/authz"
 	"learningplatform/internal/model"
-	"learningplatform/internal/oss"
+	"learningplatform/internal/platform/oss"
 	"learningplatform/internal/svc"
 
 	"github.com/google/uuid"
@@ -88,6 +88,8 @@ func (l *MultipartUploadLogic) Init(req *course.InitMultipartRequest, cu *class.
 		ExpireAt:    expireAt,
 		CreatedBy:   cu.Id,
 	}); err != nil {
+		// 会话没建起来就归还预占的额度，避免用户白扣一次配额
+		l.svcCtx.Quota.Release(cu.Id, req.FileSize)
 		return nil, err
 	}
 	return &course.InitMultipartResponse{

@@ -14,8 +14,8 @@ type fakeBizError struct {
 	msg  string
 }
 
-func (f *fakeBizError) Error() string    { return f.msg }
-func (f *fakeBizError) StatusCode() int  { return f.code }
+func (f *fakeBizError) Error() string   { return f.msg }
+func (f *fakeBizError) StatusCode() int { return f.code }
 
 func TestOK_Envelope(t *testing.T) {
 	w := httptest.NewRecorder()

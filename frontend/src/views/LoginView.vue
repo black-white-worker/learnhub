@@ -32,10 +32,16 @@ async function handleLogin() {
   try {
     // 调用后端登录接口
     const res = await login({ username: form.username, password: form.password })
-    // 登录成功：token / username / role 存进浏览器 localStorage，跳回首页
+    // 登录成功：token / username / role 存进浏览器 localStorage
     localStorage.setItem('token', res.data.token)
     localStorage.setItem('username', res.data.username)
     localStorage.setItem('role', res.data.role || 'student')
+    if (res.data.mustChangePassword) {
+      // 初始账号 / 被重置过密码：直接引导到个人中心改密
+      ElMessage.warning('请先修改初始密码')
+      router.push({ path: '/profile', query: { forcePassword: '1' } })
+      return
+    }
     ElMessage.success('登录成功')
     router.push('/')
   } catch (e) {
@@ -64,7 +70,7 @@ async function handleLogin() {
           </el-button>
         </el-form-item>
       </el-form>
-      <p class="tip">测试账号：admin / 123456</p>
+      <p class="tip">演示账号：admin / 123456（首次登录需修改密码）</p>
       <p class="tip">没有账号？<router-link to="/register">去注册</router-link></p>
     </el-card>
   </div>

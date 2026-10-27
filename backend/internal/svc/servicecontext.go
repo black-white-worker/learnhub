@@ -6,8 +6,8 @@ package svc
 import (
 	"learningplatform/internal/config"
 	"learningplatform/internal/model"
-	"learningplatform/internal/oss"
-	"learningplatform/internal/quota"
+	"learningplatform/internal/platform/oss"
+	"learningplatform/internal/platform/quota"
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/core/stores/redis"

@@ -3,9 +3,9 @@
 // 设计说明：
 // 项目历史接口（course/user/class 大部分）直接用 httpx.WriteJson 返回裸 data，
 // 前端已经按这个格式解析，不能一刀切全改。本包只做两件事：
-//   1. 新接口统一走 OK / Error，返回 {code, message, data} 三层结构；
-//   2. 错误响应（不管新旧接口）统一由 WriteError 输出三层结构，
-//      通过 codedError 鸭子类型识别 *class.BizError，避免循环 import。
+//  1. 新接口统一走 OK / Error，返回 {code, message, data} 三层结构；
+//  2. 错误响应（不管新旧接口）统一由 WriteError 输出三层结构，
+//     通过 codedError 鸭子类型识别 *class.BizError，避免循环 import。
 package response
 
 import (

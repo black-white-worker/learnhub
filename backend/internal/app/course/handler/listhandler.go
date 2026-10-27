@@ -18,9 +18,9 @@ func ListHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		l := logic.NewListLogic(r.Context(), svcCtx)
 		resp, err := l.List(page, size)
 		if err != nil {
-			httpx.ErrorCtx(r.Context(), w, err)
-		} else {
-			httpx.OkJsonCtx(r.Context(), w, resp)
+			courseError(r, w, err)
+			return
 		}
+		httpx.OkJsonCtx(r.Context(), w, resp)
 	}
 }

@@ -1,23 +1,27 @@
 package course
 
+// ===== 孤儿对象清理（网络波动兜底）=====
+//
+// 场景：客户端把封面/视频/讲义上传到 MinIO 成功后，HTTP 响应在网络波动中丢失，
+// 课程存储里的引用没有写回（或写了但客户端没收到响应），
+// 于是 MinIO 里留下"课程不引用"的孤儿对象，界面上也看不到这些资源。
+//
+// 方案：后台定时扫描 MinIO 课程目录，删除「未被任何课程引用」且
+// 「存在时间超过安全窗口」的对象。
+//
+// 安全约束（缺一不可，历史教训）：
+//  1. 引用集合必须覆盖所有落库对象 —— 见 objectrefs.go 的 ReferencedObjects；
+//  2. 只清理白名单前缀，未知前缀一律不碰（宁可留垃圾，不可误删数据）；
+//  3. 安全窗口避免误删"刚上传、引用还没写回"的对象。
+
 import (
 	"context"
-	"strings"
 	"time"
 
 	"learningplatform/internal/svc"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
-
-// ===== 孤儿对象清理（网络波动兜底）=====
-//
-// 场景：客户端把封面/视频上传到 MinIO 成功后，HTTP 响应在网络波动中丢失，
-// 课程存储里的 SetCover / AddVideos 没有执行（或执行了但客户端没收到响应），
-// 于是 MinIO 里留下"课程不引用"的孤儿对象，界面上也看不到这些资源。
-//
-// 方案：后台定时扫描 MinIO 课程目录，删除「未被任何课程引用」且
-// 「存在时间超过安全窗口」的对象。安全窗口避免误删刚上传、引用还没来得及写回的对象。
 
 const (
 	// orphanSweepInterval 扫描周期：每 10 分钟跑一次。
@@ -45,6 +49,18 @@ func StartOrphanSweeper(svcCtx *svc.ServiceContext) {
 	}()
 }
 
+// collectReferencedObjects 汇总所有课程的引用对象。独立出来是为了能单测：
+// "讲义必须在引用集合里"是曾经出过数据丢失事故的不变量。
+func collectReferencedObjects(courses []*Course, bucket string) map[string]struct{} {
+	referenced := make(map[string]struct{})
+	for _, c := range courses {
+		for _, name := range c.ReferencedObjects(bucket) {
+			referenced[name] = struct{}{}
+		}
+	}
+	return referenced
+}
+
 // sweepOrphans 扫描并清理孤儿对象。
 // 独立函数便于单元测试直接调用（不依赖后台协程）。
 func sweepOrphans(svcCtx *svc.ServiceContext) error {
@@ -52,26 +68,22 @@ func sweepOrphans(svcCtx *svc.ServiceContext) error {
 		return nil
 	}
 
-	// 1. 收集当前所有被课程引用的对象名（封面原图 / 封面缩略图 / 视频）
-	referenced := make(map[string]struct{})
-	for _, c := range Store.List() {
-		collectReferenced(referenced, c.CoverUrl, svcCtx.Config.Minio.Bucket)
-		collectReferenced(referenced, c.CoverThumbUrl, svcCtx.Config.Minio.Bucket)
-		for _, v := range c.Videos {
-			collectReferenced(referenced, v.Url, svcCtx.Config.Minio.Bucket)
-		}
-	}
+	bucket := svcCtx.Config.Minio.Bucket
+	referenced := collectReferencedObjects(Store.List(), bucket)
 
-	// 2. 列出课程目录下的所有对象
 	objects, err := svcCtx.Oss.ListObjects(context.Background(), "course/")
 	if err != nil {
 		return err
 	}
 
-	// 3. 删除「未被引用」且「超过安全窗口」的对象
 	now := time.Now()
 	removed := 0
 	for _, obj := range objects {
+		// 白名单外的对象（导出文件、将来的新前缀）一律不碰：
+		// 清理器只对自己完全理解的目录负责。
+		if !IsManagedObject(obj.Name) {
+			continue
+		}
 		if _, ok := referenced[obj.Name]; ok {
 			continue // 正在被课程引用，不动
 		}
@@ -89,22 +101,4 @@ func sweepOrphans(svcCtx *svc.ServiceContext) error {
 		logx.Infof("孤儿对象清理完成，共删除 %d 个", removed)
 	}
 	return nil
-}
-
-// collectReferenced 把一条存储 URL 解析成桶内对象名并加入引用集合。
-// URL 形如 http://endpoint/bucket/objectName，按 "/bucket/" 定位截取。
-// 解析失败的 URL 直接忽略，不影响其他引用（也不会误删——引用缺失最多导致多删一条孤儿）。
-func collectReferenced(set map[string]struct{}, url, bucket string) {
-	if url == "" || bucket == "" {
-		return
-	}
-	marker := "/" + bucket + "/"
-	idx := strings.Index(url, marker)
-	if idx < 0 {
-		return
-	}
-	objectName := url[idx+len(marker):]
-	if objectName != "" {
-		set[objectName] = struct{}{}
-	}
 }

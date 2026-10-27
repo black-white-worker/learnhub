@@ -3,14 +3,19 @@
 import { ref, onMounted, computed, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import axios from 'axios'
 import QuestionEditor from '../components/QuestionEditor.vue'
+import {
+  getExamDetail,
+  startExam,
+  saveExamDraft,
+  submitExam as apiSubmitExam,
+  gradeExamSubmission,
+  reportExamViolation,
+} from '../api/index.js'
 
 const route = useRoute()
 const router = useRouter()
 const examId = route.params.id
-const token = localStorage.getItem('token')
-const auth = { headers: { Authorization: 'Bearer ' + token } }
 
 const detail = ref(null)
 const answers = ref({})
@@ -143,7 +148,7 @@ function judgeOptionValue(letter) {
 
 async function load() {
   try {
-    const r = await axios.get(`/api/exam/${examId}`, auth)
+    const r = await getExamDetail(examId)
     detail.value = r.data
     if (r.data.mySubmission?.answers) {
       try { answers.value = JSON.parse(r.data.mySubmission.answers) } catch (e) { answers.value = {} }
@@ -162,9 +167,73 @@ async function load() {
       clearInterval(timer.value)
       timer.value = null
     }
+    await ensureStarted()
     startCountdown()
+    startDraftAutosave()
   } catch (e) {
     ElMessage.error(e.response?.data?.message || '加载考试失败')
+  }
+}
+
+// ===== 开始作答 =====
+//
+// 服务端的"个人时长"从 started_at 起算。历史前端没有"开始考试"入口，
+// 学生直接进入答题区 —— 那样 started_at 永远为空，时长限制形同虚设。
+// 这里在进入页面时补一次开考（接口本身幂等：重复调用不会重置时间），
+// 之后拿服务端返回的 deadlineAt 作为倒计时依据。
+let autoStartTried = false
+
+async function ensureStarted() {
+  if (autoStartTried) return
+  autoStartTried = true
+  if (isTeacher.value || hasSubmitted.value) return
+  if (detail.value?.mySubmission || !canSubmit.value) return
+  try {
+    const r = await startExam(examId)
+    if (r.data?.deadlineAt) {
+      detail.value.deadlineAt = r.data.deadlineAt
+    }
+  } catch (e) {
+    // 未到开考时间 / 已结束：保持页面现状，不打断浏览
+  }
+}
+
+// ===== 作答草稿自动保存 =====
+//
+// 为什么需要：学生答案只存在内存里，断网/崩溃/误关页面时服务端什么都没有，
+// 而超时收卷是按服务端记录判分的 —— 旧实现里这就是 0 分。
+// 这里每 15 秒把"有变化"的答案存一次；内容没变不发请求。
+const DRAFT_INTERVAL_MS = 15000
+let draftTimer = null
+let lastDraftJson = ''
+const draftSavedAt = ref('')
+
+function startDraftAutosave() {
+  if (draftTimer) {
+    clearInterval(draftTimer)
+    draftTimer = null
+  }
+  // 只对"还在作答的学生"启用：老师端、已交卷、已超时都不需要
+  if (isTeacher.value || hasSubmitted.value || !canSubmit.value) return
+  lastDraftJson = JSON.stringify(answers.value || {})
+  draftTimer = setInterval(saveDraftNow, DRAFT_INTERVAL_MS)
+}
+
+async function saveDraftNow() {
+  if (isTeacher.value || hasSubmitted.value || !canSubmit.value) return
+  const payload = JSON.stringify(answers.value || {})
+  if (payload === lastDraftJson) return
+  try {
+    await saveExamDraft(examId, answers.value)
+    lastDraftJson = payload
+    draftSavedAt.value = new Date().toLocaleTimeString()
+  } catch (e) {
+    // 409 = 已经交卷/收卷；停止自动保存，避免每 15 秒刷一次错误
+    if (e.response?.status === 409) {
+      if (draftTimer) clearInterval(draftTimer)
+      draftTimer = null
+    }
+    // 其余错误（网络抖动）静默重试，不打扰答题
   }
 }
 
@@ -194,7 +263,7 @@ async function autoSubmit() {
   if (isTeacher.value || hasSubmitted.value || submitting.value) return
   submitting.value = true
   try {
-    await axios.post(`/api/exam/${examId}/submit`, { answers: answers.value }, auth)
+    await apiSubmitExam(examId, answers.value)
     ElMessage.warning('考试时间到，已自动交卷')
     await load()
   } catch (e) {
@@ -209,7 +278,7 @@ async function autoSubmit() {
 function onVisibilityChange() {
   if (document.visibilityState !== 'hidden') return
   if (isTeacher.value || hasSubmitted.value || !canSubmit.value) return
-  axios.post(`/api/exam/${examId}/violation`, {}, auth)
+  reportExamViolation(examId)
     .then((r) => {
       violations.value = r.data?.violations || violations.value + 1
       const limit = detail.value?.exam?.tabLimit || 0
@@ -221,7 +290,10 @@ function onVisibilityChange() {
     })
     .catch(() => {})
 }
-onUnmounted(() => clearInterval(timer.value))
+onUnmounted(() => {
+  clearInterval(timer.value)
+  if (draftTimer) clearInterval(draftTimer)
+})
 
 function fmtRemain() {
   const m = Math.floor(remainSeconds.value / 60)
@@ -257,7 +329,7 @@ async function submitExam() {
   }
   submitting.value = true
   try {
-    const r = await axios.post(`/api/exam/${examId}/submit`, { answers: answers.value }, auth)
+    const r = await apiSubmitExam(examId, answers.value)
     ElMessage.success(r.data.autoScore !== undefined ? `交卷成功，客观题得分：${r.data.autoScore}` : '交卷成功')
     await load()
   } catch (e) {
@@ -276,9 +348,9 @@ async function submitExam() {
 async function gradeSubmission(submissionId) {
   const g = gradeForm.value[submissionId]
   try {
-    await axios.post(`/api/exam/submission/${submissionId}/grade`, {
+    await gradeExamSubmission(submissionId, {
       teacherScore: g.teacherScore, comment: g.comment,
-    }, auth)
+    })
     ElMessage.success('批改成功')
     load()
     showSubmission.value = false
@@ -442,6 +514,7 @@ onUnmounted(() => {
         <el-button @click="$router.back()" size="small">← 返回</el-button>
         <h2 style="margin:0">{{ detail.exam.title }}</h2>
         <el-tag type="danger" v-if="!hasSubmitted">剩余时间：{{ fmtRemain() }}</el-tag>
+        <span v-if="!hasSubmitted && draftSavedAt" class="draft-tip">草稿已保存 {{ draftSavedAt }}</span>
         <el-button size="small" @click="showAnswerSheet = true">答题卡</el-button>
       </div>
 
@@ -602,6 +675,7 @@ onUnmounted(() => {
 .exam-detail { padding: 0; }
 .teacher-header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #fff; border-bottom: 1px solid #eee; }
 .student-topbar { display: flex; align-items: center; gap: 12px; padding: 14px 24px; background: #fff; border-bottom: 1px solid #eee; position: sticky; top: 0; z-index: 10; }
+.draft-tip { font-size: 12px; color: #9ca3af; }
 .student-area { max-width: 800px; margin: 24px auto; padding: 0 16px; }
 .already-submitted { margin: 16px; }
 .q-card { background: #fff; border-radius: 12px; padding: 28px; box-shadow: 0 2px 12px rgba(0,0,0,.06); min-height: 360px; }

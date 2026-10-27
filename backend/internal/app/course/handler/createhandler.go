@@ -6,7 +6,7 @@ import (
 	"learningplatform/internal/app/course"
 	"learningplatform/internal/app/course/logic"
 	"learningplatform/internal/app/user"
-	"learningplatform/internal/authz"
+	"learningplatform/internal/domain/authz"
 	"learningplatform/internal/svc"
 )
 

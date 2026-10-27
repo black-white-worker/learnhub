@@ -30,9 +30,10 @@ Minio:
 Upload:
   MaxCoverBytes: 5242880      # 封面 5MB
   MaxVideoBytes: 524288000    # 单个视频 500MB
-  # 每个用户每日上传总量上限：0 = 不限制；建议生产环境配 2147483648（2GB）。
+  # 每个用户每日上传总量上限（2GB）：0 = 不限制。
   # 计数在 Redis（upload:quota:YYYYMMDD:userId，48h TTL），用于防"账号被盗后把存储灌满"。
-  DailyQuotaBytesPerUser: 0
+  # 上传失败会归还额度（见 quota.Release），不会因为一次失败永久吃额度。
+  DailyQuotaBytesPerUser: 2147483648
 
 # ===== MySQL 配置 =====
 # 数据源通过环境变量 MYSQL_DSN 注入（本机直跑示例）：
