@@ -1,4 +1,4 @@
-# 学习平台 一键启动脚本（参考 S:\videonest\scripts 的风格）
+﻿# 学习平台 一键启动脚本（参考 S:\videonest\scripts 的风格）
 # 用法：
 #   .\start.ps1                    # 启动（默认自动检测：源码没变就跳过构建）
 #   .\start.ps1 -ForceBuild        # 强制重新构建镜像
@@ -213,7 +213,26 @@ if ($SkipBuild) {
     Write-Log "跳过构建，直接启动容器 ..."
     $ec = Invoke-DockerCmd compose up -d
 } elseif ($needBuild) {
-    $ec = Invoke-DockerCmd compose up -d --build
+    if ($ForceBuild) {
+        # --no-cache 不是 up 的合法参数（会报 unknown flag），只能用于 build。
+        # 强制构建拆成三步：前端无缓存重建 → 后端用缓存重建 → 启动。
+        # 只有【前端】需要 --no-cache：Windows/WSL2 下 BuildKit 偶尔误判 COPY 层未变化，
+        # 导致 npm run build 没真正跑、dist 还是旧的（表现为改了前端代码但页面没变）。
+        # 【后端】绝不加 --no-cache：阶段二要 apk 安装 LibreOffice 等 238 个包（耗时 90s+），
+        # 该层只依赖 alpine 基础镜像和 apk 命令本身，与后端源码无关、内容始终稳定，
+        # 应始终命中 Docker 层缓存；一旦加 --no-cache 就会每次重新下载+安装一次。
+        Write-Log "强制无缓存重建前端镜像 ..."
+        $ec = Invoke-DockerCmd compose build --no-cache frontend
+        if ($ec -eq 0) {
+            Write-Log "重建后端镜像（使用层缓存，跳过 LibreOffice 重装）..."
+            $ec = Invoke-DockerCmd compose build backend
+        }
+        if ($ec -eq 0) {
+            $ec = Invoke-DockerCmd compose up -d
+        }
+    } else {
+        $ec = Invoke-DockerCmd compose up -d --build
+    }
 } else {
     $ec = Invoke-DockerCmd compose up -d
 }

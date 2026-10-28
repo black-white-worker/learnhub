@@ -1,4 +1,4 @@
-# 学习平台 后端本地启动脚本（参考 videonest 的 start-backend.ps1）
+﻿# 学习平台 后端本地启动脚本（参考 videonest 的 start-backend.ps1）
 # 用法：
 #   1. 先启动数据库、Redis、MinIO 容器：docker compose up -d mysql redis minio
 #   2. 再运行本脚本：.\start-backend.ps1

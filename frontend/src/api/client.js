@@ -17,14 +17,23 @@ import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
 // ===== 1. 让所有 axios 请求自动带 token =====
-axios.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token')
-  if (token && !config.headers?.Authorization) {
-    config.headers = config.headers || {}
-    config.headers.Authorization = 'Bearer ' + token
-  }
-  return config
-})
+//
+// 注意：axios.create() 出来的实例 **不会继承** 全局 axios 的拦截器，
+// 必须给每个实例单独挂。之前只给全局 axios 挂了请求拦截器，
+// client / rawClient 的请求（登录、改密、通知、课程接口）都没带 Authorization，
+// 表现为"登录成功但立刻 401、又被踢回登录页"。
+function attachRequestInterceptor(instance) {
+  instance.interceptors.request.use((config) => {
+    const token = localStorage.getItem('token')
+    if (token && !config.headers?.Authorization) {
+      config.headers = config.headers || {}
+      config.headers.Authorization = 'Bearer ' + token
+    }
+    return config
+  })
+}
+
+attachRequestInterceptor(axios)
 
 // ===== 2. 401 统一处理（清会话 + 跳登录）=====
 let redirecting = false
@@ -87,6 +96,7 @@ const client = axios.create({
   timeout: 20000,
 })
 
+attachRequestInterceptor(client)
 attachResponseInterceptor(client, { unwrap: true })
 
 // ===== 4. 老代码用的 rawClient：同一套拦截器，但保留 axios 原始响应 =====
@@ -99,6 +109,7 @@ export const rawClient = axios.create({
   timeout: 20000,
 })
 
+attachRequestInterceptor(rawClient)
 attachResponseInterceptor(rawClient, { unwrap: false })
 
 // 下载文件（成绩单 CSV 等）：必须走 blob，不能走自动解包

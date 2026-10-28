@@ -1,4 +1,4 @@
-$base = "http://127.0.0.1:8888"
+﻿$base = "http://127.0.0.1:8888"
 $ErrorActionPreference = "Stop"
 
 function Login($u, $p) {

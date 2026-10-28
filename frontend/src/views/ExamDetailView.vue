@@ -51,6 +51,21 @@ const canSubmit = computed(() =>
 // 是否展示答案（服务端在整场结束后才下发标准答案）
 const answersVisible = computed(() => detail.value?.answersVisible === true)
 
+// 交卷结果摘要：老师评分 0 分也要显示（用 null 判断，不能用真值判断，
+// 否则老师打了 0 分会像“没批”一样消失）
+const resultSummary = computed(() => {
+  const sub = detail.value?.mySubmission
+  if (!sub) return ''
+  const parts = [`客观题得分：${sub.autoScore ?? '待老师批主观题'}`]
+  if (sub.teacherScore !== null && sub.teacherScore !== undefined) {
+    parts.push(`老师评分：${sub.teacherScore}`)
+  }
+  return `你已交卷，${parts.join('，')}`
+})
+
+// 老师批改评语（批改弹窗里填的“评语”字段），交卷后回显给学生
+const teacherComment = computed(() => (detail.value?.mySubmission?.comment || '').trim())
+
 // 违纪（切屏）计数：服务端累加，前端只负责上报与提示
 const violations = ref(0)
 
@@ -520,8 +535,13 @@ onUnmounted(() => {
 
       <!-- 已交卷：答题回顾（类似老师查看答卷） -->
       <div v-if="hasSubmitted" class="review-area">
-        <el-alert type="success" :closable="false" style="margin-bottom:16px"
-                  :title="`你已交卷，客观题得分：${detail.mySubmission.autoScore ?? '待老师批主观题'}${detail.mySubmission.teacherScore ? '，老师评分：' + detail.mySubmission.teacherScore : ''}`" />
+        <el-alert type="success" :closable="false" style="margin-bottom:16px" :title="resultSummary" />
+
+        <!-- 老师评语：老师批改弹窗里填写的评语，交卷后在这里回显给学生 -->
+        <div v-if="teacherComment" class="teacher-comment">
+          <div class="tc-head">老师评语</div>
+          <div class="tc-body">{{ teacherComment }}</div>
+        </div>
 
         <div v-for="(q, i) in studentQuestions" :key="q.id" class="review-card">
           <div class="review-head">
@@ -678,6 +698,16 @@ onUnmounted(() => {
 .draft-tip { font-size: 12px; color: #9ca3af; }
 .student-area { max-width: 800px; margin: 24px auto; padding: 0 16px; }
 .already-submitted { margin: 16px; }
+/* 老师评语卡片：与顶部“交卷成功”绿色提示区分开，用蓝色系更醒目 */
+.teacher-comment {
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: #f4f8ff;
+  border-left: 4px solid #409eff;
+  border-radius: 6px;
+}
+.teacher-comment .tc-head { font-weight: 600; color: #337ecc; margin-bottom: 6px; }
+.teacher-comment .tc-body { color: #333; line-height: 1.7; white-space: pre-wrap; }
 .q-card { background: #fff; border-radius: 12px; padding: 28px; box-shadow: 0 2px 12px rgba(0,0,0,.06); min-height: 360px; }
 .q-head { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
 .q-no { font-size: 18px; font-weight: 700; color: #409eff; }
