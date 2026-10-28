@@ -42,3 +42,14 @@ desktop.ini
 
 # ===== 本地数据（向量库等）=====
 ai-service/data/
+
+# ===== 本地压测 / 构建验证临时目录（用完即删，不入库）=====
+.bench/
+.buildcheck/
+.gocache/
+
+# ===== 个人笔记 / AI 工具缓存 =====
+.workbuddy/
+
+# ===== 历史重写前的本地备份 =====
+.gitbackup/

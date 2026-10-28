@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+
+	"github.com/zeromicro/go-zero/core/stores/sqlx"
 )
 
 // ===== 成绩册（对标 Canvas gradebook）=====
@@ -61,6 +63,36 @@ func (m *ClassModel) EnsureGradeItem(classId int64, sourceType string, sourceId 
 // SetGradeScore 写入/更新一条成绩（幂等）。gradedBy=0 表示系统自动判分。
 func (m *ClassModel) SetGradeScore(itemId, userId int64, score float64, gradedBy int64) error {
 	_, err := m.conn.ExecCtx(context.Background(),
+		`INSERT INTO grade_scores (item_id, user_id, score, graded_by)
+		 VALUES (?,?,?,?)
+		 ON DUPLICATE KEY UPDATE score=VALUES(score), graded_by=VALUES(graded_by), graded_at=NOW()`,
+		itemId, userId, score, gradedBy)
+	return err
+}
+
+// EnsureGradeItemTx 事务版本：在 session 上执行，供跨表事务复用。逻辑与 EnsureGradeItem 一致。
+func (m *ClassModel) EnsureGradeItemTx(ctx context.Context, session sqlx.Session, classId int64, sourceType string, sourceId int64, title string, maxScore float64) (int64, error) {
+	if maxScore <= 0 {
+		maxScore = 100
+	}
+	if _, err := session.ExecCtx(ctx,
+		`INSERT INTO grade_items (class_id, source_type, source_id, title, max_score)
+		 VALUES (?,?,?,?,?)
+		 ON DUPLICATE KEY UPDATE class_id=VALUES(class_id), title=VALUES(title), max_score=VALUES(max_score)`,
+		classId, sourceType, sourceId, title, maxScore); err != nil {
+		return 0, err
+	}
+	var id int64
+	if err := session.QueryRowCtx(ctx, &id,
+		"SELECT id FROM grade_items WHERE source_type=? AND source_id=?", sourceType, sourceId); err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+// SetGradeScoreTx 事务版本：在 session 上执行，供跨表事务复用。逻辑与 SetGradeScore 一致。
+func (m *ClassModel) SetGradeScoreTx(ctx context.Context, session sqlx.Session, itemId, userId int64, score float64, gradedBy int64) error {
+	_, err := session.ExecCtx(ctx,
 		`INSERT INTO grade_scores (item_id, user_id, score, graded_by)
 		 VALUES (?,?,?,?)
 		 ON DUPLICATE KEY UPDATE score=VALUES(score), graded_by=VALUES(graded_by), graded_at=NOW()`,

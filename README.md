@@ -230,7 +230,7 @@ cd frontend && npm run build                     # 构建即校验所有 .vue �
 集成测试默认连 `127.0.0.1:3316` / `6381`，可用 `TEST_MYSQL_DSN`、`TEST_REDIS_PASS` 覆盖。
 CI 用 service containers 真跑，见 `.github/workflows/ci.yml`。
 
-压测：`cd load-test && go run main.go`，历史结果见 [load-test-report/REPORT.md](load-test-report/REPORT.md)。
+压测：`cd load-test && LP_TOKEN=<登录 token> go run main.go`（token 也可用 `-token` 传入，不再写死在代码里），历史结果见 [load-test-report/REPORT.md](load-test-report/REPORT.md)。
 
 ---
 

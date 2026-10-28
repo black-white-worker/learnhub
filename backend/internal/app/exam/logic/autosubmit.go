@@ -47,16 +47,30 @@ const (
 )
 
 // StartAutoSubmitter 启动后台自动收卷（在 main 里调一次即可）。
-func StartAutoSubmitter(svcCtx *svc.ServiceContext) {
+//
+// parent 用于优雅退出：收到 parent.Done() 后停止扫描并退出 goroutine，
+// 避免在进程退出时被强杀、留下半截收卷动作。
+// 返回值是一个 done channel，调用方（main）在 server 优雅关闭后可 <-done
+// 等待其真正退出。
+func StartAutoSubmitter(parent context.Context, svcCtx *svc.ServiceContext) <-chan struct{} {
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		ticker := time.NewTicker(autoSubmitInterval)
 		defer ticker.Stop()
-		for range ticker.C {
-			if n := RunAutoSubmitOnce(svcCtx); n > 0 {
-				logx.Infof("自动收卷：本次处理 %d 份超时答卷", n)
+		for {
+			select {
+			case <-parent.Done():
+				logx.Infof("自动收卷协程正在退出: %v", parent.Err())
+				return
+			case <-ticker.C:
+				if n := RunAutoSubmitOnce(svcCtx); n > 0 {
+					logx.Infof("自动收卷：本次处理 %d 份超时答卷", n)
+				}
 			}
 		}
 	}()
+	return done
 }
 
 // dueExamContext 一轮收卷里"按考试维度共享"的数据：题目、满分、成绩项。

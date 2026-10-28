@@ -14,6 +14,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 
@@ -50,14 +51,23 @@ func main() {
 	handler.RegisterHandlers(server, ctx)
 	handler.RegisterHealth(server, ctx)
 
+	// 进程级 context：server 优雅关闭后 cancel，通知后台任务退出，避免被强杀。
+	background, cancel := context.WithCancel(context.Background())
+
 	// 启动孤儿对象后台清理（每 10 分钟扫描一次 MinIO，
 	// 删除"上传成功但课程未引用"的残留对象，网络波动兜底）
-	course.StartOrphanSweeper(ctx)
+	sweeperDone := course.StartOrphanSweeper(background, ctx)
 
 	// 启动考试超时自动收卷（每分钟扫一次"考试中"的记录，
 	// 超过"开考时间 + 时长"强制收卷，并按最后一次草稿判分）
-	examlogic.StartAutoSubmitter(ctx)
+	submitterDone := examlogic.StartAutoSubmitter(background, ctx)
 
 	fmt.Printf("Starting server at %s:%d...\n", c.Host, c.Port)
 	server.Start()
+
+	// server 已优雅关闭（HTTP 不再接收新请求）。通知后台任务退出并等待其结束，
+	// 否则进程退出会把正在执行的收卷 / 清理动作强杀，可能留下半截状态。
+	cancel()
+	<-sweeperDone
+	<-submitterDone
 }

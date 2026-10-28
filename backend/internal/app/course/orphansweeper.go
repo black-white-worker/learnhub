@@ -32,21 +32,35 @@ const (
 )
 
 // StartOrphanSweeper 启动后台孤儿清理协程（服务启动时调用一次）。
-// MinIO 未初始化（Oss == nil）时直接返回，不影响服务启动。
-func StartOrphanSweeper(svcCtx *svc.ServiceContext) {
+//
+// parent 用于优雅退出：收到 parent.Done() 后停止派发新任务并退出 goroutine，
+// 避免在进程退出时被强杀、留下半截清理动作。
+// 返回值是一个 done channel，调用方（main）在 server 优雅关闭后可 <-done
+// 等待其真正退出。MinIO 未初始化（Oss == nil）时立即关闭 done 并返回，不影响启动。
+func StartOrphanSweeper(parent context.Context, svcCtx *svc.ServiceContext) <-chan struct{} {
+	done := make(chan struct{})
 	if svcCtx.Oss == nil {
-		return
+		close(done)
+		return done
 	}
 	go func() {
+		defer close(done)
 		// 启动后先等一个周期再首跑，避免和"正在上传"的首次请求抢时间窗口
 		ticker := time.NewTicker(orphanSweepInterval)
 		defer ticker.Stop()
-		for range ticker.C {
-			if err := sweepOrphans(svcCtx); err != nil {
-				logx.Errorf("孤儿对象清理失败: %v", err)
+		for {
+			select {
+			case <-parent.Done():
+				logx.Infof("孤儿对象清理协程正在退出: %v", parent.Err())
+				return
+			case <-ticker.C:
+				if err := sweepOrphans(svcCtx); err != nil {
+					logx.Errorf("孤儿对象清理失败: %v", err)
+				}
 			}
 		}
 	}()
+	return done
 }
 
 // collectReferencedObjects 汇总所有课程的引用对象。独立出来是为了能单测：

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"learningplatform/internal/svc"
 
 	"github.com/zeromicro/go-zero/core/logx"
+	"github.com/zeromicro/go-zero/core/stores/sqlx"
 )
 
 type ExamLogic struct {
@@ -387,25 +389,39 @@ func (l *ExamLogic) Submit(examId int64, req *exam.SubmitReq, cu *class.CtxUser)
 	scoreRes := ScoreExam(questions, req.Answers)
 	answersJSON, _ := json.Marshal(req.Answers)
 
-	ok, err := l.svcCtx.ExamStore.SubmitOnce(&model.ExamSubmissionRow{
-		ExamId: examId, UserId: cu.Id, Answers: string(answersJSON),
-		AutoScore: nullInt(scoreRes.AutoScore),
+	// 交卷 + 写成绩册放进同一个事务：
+	//  · SubmitOnce 条件更新保证"已交卷返回 409"且原子；
+	//  · 成绩册写入与答卷落库强一致，杜绝"交卷成功但成绩册丢了一条"的中间态；
+	//  · 任一环节失败整体回滚，让学生重试，而不是留下半截数据。
+	submitErr := l.svcCtx.DB.TransactCtx(l.ctx, func(ctx context.Context, session sqlx.Session) error {
+		ok, suberr := l.svcCtx.ExamStore.SubmitOnceTx(ctx, session, &model.ExamSubmissionRow{
+			ExamId:    examId,
+			UserId:    cu.Id,
+			Answers:   string(answersJSON),
+			AutoScore: nullInt(scoreRes.AutoScore),
+		})
+		if suberr != nil {
+			return suberr
+		}
+		if !ok {
+			// 并发交卷：条件更新 0 行，回滚并返回一个 409
+			return &class.BizError{Code: http.StatusConflict, Msg: examrules.ErrAlreadySubmitted.Error()}
+		}
+
+		// 写成绩册（与答卷同一事务，原子）
+		maxScore := float64(e.TotalScore)
+		if maxScore <= 0 {
+			maxScore = float64(sumQuestionScores(questions))
+		}
+		itemId, gerr := l.svcCtx.ClassStore.EnsureGradeItemTx(ctx, session, e.ClassId, "exam", e.Id, e.Title, maxScore)
+		if gerr != nil {
+			return gerr
+		}
+		return l.svcCtx.ClassStore.SetGradeScoreTx(ctx, session, itemId, cu.Id, float64(scoreRes.AutoScore), 0)
 	})
-	if err != nil {
-		return nil, err
+	if submitErr != nil {
+		return nil, submitErr
 	}
-	if !ok {
-		// 并发场景：两个请求同时交卷，条件更新只有一个能成功
-		return nil, &class.BizError{Code: http.StatusConflict, Msg: examrules.ErrAlreadySubmitted.Error()}
-	}
-
-	// 写入成绩册（幂等）。满分用考试设置的总分，缺失时用题目分值之和兜底。
-	maxScore := float64(e.TotalScore)
-	if maxScore <= 0 {
-		maxScore = float64(sumQuestionScores(questions))
-	}
-	recordExamScore(l.svcCtx, e.ClassId, e.Id, e.Title, cu.Id, float64(scoreRes.AutoScore), maxScore, 0)
-
 	return &exam.SubmitResp{Message: "交卷成功", AutoScore: scoreRes.AutoScore}, nil
 }
 
@@ -481,24 +497,26 @@ func sumQuestionScores(questions []*model.ExamQuestionRow) int {
 	return sum
 }
 
-// recordExamScore 把考试得分写进成绩册。失败只记日志、不影响交卷本身：
-// 交卷是学生的关键动作，不能因为统计表写失败就回滚整份答卷。
+// recordExamScore 把考试得分写进成绩册（成绩项 + 成绩两条，幂等）。
 //
-// 抽成包级函数是因为超时自动收卷（autosubmit.go）也要写同一张表，
-// 两处口径必须一致（满分取考试设置，缺失时用题目分值之和兜底）。
-func recordExamScore(svcCtx *svc.ServiceContext, classId, examId int64, title string, userId int64, score, maxScore float64, gradedBy int64) {
-	if svcCtx.ClassStore == nil {
-		logx.Errorf("成绩册未初始化，跳过写入 exam=%d", examId)
-		return
+// 改造点：原先失败只记日志、不影响交卷；现在改为返回 error，
+// 调用方即可把"交卷 + 写成绩册"包进同一个事务——要么都成功，要么都回滚。
+// 超时自动收卷（autosubmit.go）也复用本函数，那里不在事务里，调用方按记日志处理。
+//
+// 抽成包级函数是因为交卷 / 批改 / 自动收卷都要写同一张表，
+// 三处口径必须一致（满分取考试设置，缺失时用题目分值之和兜底）。
+func recordExamScore(classStore *model.ClassModel, classId, examId int64, title string, userId int64, score, maxScore float64, gradedBy int64) error {
+	if classStore == nil {
+		return fmt.Errorf("成绩册未初始化，跳过写入 exam=%d", examId)
 	}
-	itemId, err := svcCtx.ClassStore.EnsureGradeItem(classId, "exam", examId, title, maxScore)
+	itemId, err := classStore.EnsureGradeItem(classId, "exam", examId, title, maxScore)
 	if err != nil {
-		logx.Errorf("写入成绩项失败 exam=%d: %v", examId, err)
-		return
+		return fmt.Errorf("写入成绩项失败 exam=%d: %w", examId, err)
 	}
-	if err := svcCtx.ClassStore.SetGradeScore(itemId, userId, score, gradedBy); err != nil {
-		logx.Errorf("写入成绩失败 exam=%d user=%d: %v", examId, userId, err)
+	if err := classStore.SetGradeScore(itemId, userId, score, gradedBy); err != nil {
+		return fmt.Errorf("写入成绩失败 exam=%d user=%d: %w", examId, userId, err)
 	}
+	return nil
 }
 
 // Grade 老师手批（含授权校验）。
@@ -545,7 +563,11 @@ func (l *ExamLogic) Grade(submissionId int64, req *exam.GradeReq, cu *class.CtxU
 			Msg:  "分数不能超过满分 " + strconv.FormatFloat(maxScore, 'f', -1, 64),
 		}
 	}
-	recordExamScore(l.svcCtx, e.ClassId, e.Id, e.Title, sub.UserId, float64(req.TeacherScore), maxScore, cu.Id)
+	// 成绩册写入失败：答卷分数（exam_submissions.teacher_score）已落库，这里只记录，
+	// 不回滚整次批改（与"交卷"不同，批改是老师主动操作，失败记日志即可）。
+	if err := recordExamScore(l.svcCtx.ClassStore, e.ClassId, e.Id, e.Title, sub.UserId, float64(req.TeacherScore), maxScore, cu.Id); err != nil {
+		logx.Errorf("写入成绩册失败（批改）exam=%d user=%d: %v", e.Id, sub.UserId, err)
+	}
 	return nil
 }
 

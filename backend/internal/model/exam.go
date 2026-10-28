@@ -285,6 +285,41 @@ func (m *ExamModel) SubmitOnce(s *ExamSubmissionRow) (bool, error) {
 	return true, nil
 }
 
+// SubmitOnceTx 交卷的事务版本：在传入的 session 上执行，供"交卷 + 写成绩册"
+// 的跨表事务（examlogic.Submit）复用，保证原子。逻辑与 SubmitOnce 完全一致。
+func (m *ExamModel) SubmitOnceTx(ctx context.Context, session sqlx.Session, s *ExamSubmissionRow) (bool, error) {
+	res, err := session.ExecCtx(ctx,
+		`UPDATE exam_submissions
+		    SET answers=?, auto_score=?, status='submitted', submitted_at=NOW()
+		  WHERE exam_id=? AND user_id=? AND status='started'`,
+		s.Answers, s.AutoScore, s.ExamId, s.UserId)
+	if err != nil {
+		return false, err
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		return true, nil
+	}
+
+	// 更新 0 行：要么没开考记录，要么已经交过卷。先查一眼区分这两种情况。
+	cur, qerr := m.GetMySubmission(s.ExamId, s.UserId)
+	if qerr != nil && qerr != sql.ErrNoRows {
+		return false, qerr
+	}
+	if cur != nil {
+		return false, nil
+	}
+
+	// 不存在：允许直接交卷（学生没点"开始考试"但答完了）
+	_, ierr := session.ExecCtx(ctx,
+		`INSERT INTO exam_submissions (exam_id, user_id, answers, auto_score, status, submitted_at)
+		 VALUES (?,?,?,?,'submitted',NOW())`,
+		s.ExamId, s.UserId, s.Answers, s.AutoScore)
+	if ierr != nil {
+		return false, ierr
+	}
+	return true, nil
+}
+
 // GetMySubmission 取某学生某场考试的提交记录；不存在返回 (nil, nil)。
 func (m *ExamModel) GetMySubmission(examId, userId int64) (*ExamSubmissionRow, error) {
 	var s ExamSubmissionRow

@@ -1,15 +1,18 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
-var token = "2df7e2e8ac3dd4125d593354902a1048dcf38530247810667ae5357079f0cbd0"
+// 登录 token 不要写死在仓库里：用 -token 或环境变量 LP_TOKEN 传入。
+var token = flag.String("token", os.Getenv("LP_TOKEN"), "登录 token（也可用环境变量 LP_TOKEN）")
 
 type target struct {
 	name string
@@ -24,6 +27,11 @@ var targets = []target{
 }
 
 func main() {
+	flag.Parse()
+	if *token == "" {
+		fmt.Fprintln(os.Stderr, "缺少登录 token：请用 -token=xxx 或环境变量 LP_TOKEN 提供")
+		os.Exit(2)
+	}
 	fmt.Println("=== 学习平台 本机压测 ===")
 	fmt.Printf("压测参数: 每个接口 50 并发, 持续 5 秒\n\n")
 
@@ -57,7 +65,7 @@ func runBench(url string, concurrency int, duration time.Duration) {
 			defer wg.Done()
 			for time.Now().Before(deadline) {
 				req, _ := http.NewRequest("GET", url, nil)
-				req.Header.Set("Authorization", "Bearer "+token)
+				req.Header.Set("Authorization", "Bearer "+*token)
 				start := time.Now()
 				resp, err := client.Do(req)
 				lat := time.Since(start)

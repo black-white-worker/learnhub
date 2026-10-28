@@ -37,7 +37,7 @@ type SessionUser struct {
 
 // UserModel 基于 MySQL 的用户数据访问层。
 // 说明：原内存版 UserStore 已替换为数据库实现；
-// 预置测试账号 admin/123456 由初始化 SQL（backend/deploy/sql/init.sql）写入。
+// 预置测试账号 admin/123456 由 Flyway 迁移 V1__create_users.sql 写入。
 type UserModel struct {
 	conn sqlx.SqlConn
 }
@@ -48,7 +48,7 @@ func NewUserModel(conn sqlx.SqlConn) *UserModel {
 }
 
 // Verify 校验用户名密码是否正确。
-// 密码统一 bcrypt 哈希存储。为兼容历史明文数据（init.sql 里的 admin/123456），
+// 密码统一 bcrypt 哈希存储。为兼容历史明文数据（V1 迁移预置的 admin/123456），
 // 若库中密码不以 "$2" 开头则按明文比对；上层登录成功后会自动把明文升级为 bcrypt。
 func (m *UserModel) Verify(username, password string) bool {
 	var u User
