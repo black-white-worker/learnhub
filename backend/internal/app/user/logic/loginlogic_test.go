@@ -2,6 +2,7 @@ package logic
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -14,20 +15,32 @@ import (
 // 测试辅助函数：构造一个连接 MySQL + Redis 的 ServiceContext。
 // 注意：接入数据库后这些变成集成测试，需要先启动 MySQL 和 Redis
 // （推荐：在项目根目录执行 docker compose up -d mysql redis）。
-// 默认连接本机 Docker 映射端口：MySQL 3316、Redis 6381，
-// 可用环境变量 TEST_MYSQL_DSN 覆盖数据库地址。
+// 连接信息一律从环境变量读取，不写死在仓库里：
+//
+//	TEST_MYSQL_DSN    形如 root:<密码>@tcp(127.0.0.1:3316)/learningplatform?charset=utf8mb4&parseTime=true&loc=Local
+//	TEST_REDIS_PASS   Redis 密码（无密码时设为 TEST_REDIS_PASS=）
 func newTestSvcCtx() *svc.ServiceContext {
-	ds := os.Getenv("TEST_MYSQL_DSN")
-	if ds == "" {
-		ds = "root:Java666@tcp(127.0.0.1:3316)/learningplatform?charset=utf8mb4&parseTime=true&loc=Local"
-	}
 	c := config.Config{}
-	c.Mysql.DataSource = ds
+	c.Mysql.DataSource = os.Getenv("TEST_MYSQL_DSN")
 	// 注意：代码里直接构造 Config 时，Type 的 "node" 默认值不会自动生效，需显式指定
 	c.Redis.Type = "node"
 	c.Redis.Host = "127.0.0.1:6381"
-	c.Redis.Pass = "learningplatform_redis_2026"
+	c.Redis.Pass = os.Getenv("TEST_REDIS_PASS")
 	return svc.NewServiceContext(c)
+}
+
+// TestMain：本包用例是集成测试，依赖真实 MySQL + Redis。
+// 未配置连接信息时整包跳过，避免为了"能跑"而把密码写死进代码。
+func TestMain(m *testing.M) {
+	if os.Getenv("TEST_MYSQL_DSN") == "" {
+		fmt.Println("跳过 user/logic 集成测试：未设置 TEST_MYSQL_DSN")
+		return
+	}
+	if _, ok := os.LookupEnv("TEST_REDIS_PASS"); !ok {
+		fmt.Println("跳过 user/logic 集成测试：未设置 TEST_REDIS_PASS")
+		return
+	}
+	os.Exit(m.Run())
 }
 
 // 测试用例 1：用户名密码都正确 → 登录成功，返回 token（admin/123456 由初始化 SQL 预置）

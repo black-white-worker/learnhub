@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"learningplatform/internal/app/user"
 	"learningplatform/internal/model"
 )
 

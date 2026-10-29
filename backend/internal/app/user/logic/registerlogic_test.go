@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"learningplatform/internal/app/user"
 )
 
 // 测试用例 1：注册一个全新用户 → 成功，返回用户名
