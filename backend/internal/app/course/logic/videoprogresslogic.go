@@ -1,8 +1,21 @@
 package logic
 
+// 课程视频学习进度的读写（对标 Open edX progress 模型）。
+//
+// 改造前：进度存在 Redis，key = course:video:progress:{courseId}:{videoId}，
+// 不带用户 id —— 全班共用一个进度条，且完全无法做学情分析。
+//
+// 现在：按 (user_id, video_id) 落 MySQL，记录
+//   - position_seconds  上次看到哪（续播用）
+//   - watched_seconds   累计有效观看时长（前端只上报"真实播放过的增量"，拖动不计）
+//   - duration_seconds  视频总时长（播放器上报，服务端没有可靠媒资时长）
+//   - completed         是否看完（累计观看 >= 时长 90%）
+//
+// 兼容：没有用户上下文（例如老单测）或没有 MySQL 数据层时，退回原来的行为，
+// 只回显 position，不报错 —— 进度是辅助功能，绝不能因为它挂掉而让人看不了视频。
+
 import (
 	"context"
-	"strconv"
 
 	"learningplatform/internal/app/course"
 	"learningplatform/internal/svc"
@@ -24,33 +37,48 @@ func NewVideoProgressLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Vid
 	}
 }
 
-// progressKey 拼 Redis key：一门课程下的一个视频记一条播放位置。
-// 教学版按视频记（单用户场景），不细分用户。
-func progressKey(courseId, videoId int) string {
-	return "course:video:progress:" + strconv.Itoa(courseId) + ":" + strconv.Itoa(videoId)
-}
-
-// Save 保存播放位置（秒）。Redis 不可用时只记日志，不影响观看。
+// Save 上报播放进度。
+// req.WatchedDelta 是"上次上报以来真实播放的秒数"；Position 是播放头位置。
 func (l *VideoProgressLogic) Save(req *course.SaveProgressRequest) (resp *course.SaveProgressResponse, err error) {
-	key := progressKey(req.CourseId, req.VideoId)
-	if l.svcCtx.Redis != nil {
-		if redisErr := l.svcCtx.Redis.Set(key, strconv.Itoa(req.Position)); redisErr != nil {
-			l.Logger.Errorf("保存播放进度失败 key=%s: %v", key, redisErr)
-		}
+	if req.UserId <= 0 || l.svcCtx.CourseStore == nil {
+		// 无法按用户落库：只回显位置（保持接口可用，不阻断观看）
+		return &course.SaveProgressResponse{Position: req.Position}, nil
 	}
-	return &course.SaveProgressResponse{Position: req.Position}, nil
+
+	p, err := l.svcCtx.CourseStore.SaveVideoProgress(
+		req.UserId, int64(req.CourseId), int64(req.VideoId),
+		req.Position, req.WatchedDelta, req.Duration,
+	)
+	if err != nil {
+		// 进度是辅助功能：写失败不抛给前端，只记日志
+		l.Logger.Errorf("保存学习进度失败 user=%d video=%d: %v", req.UserId, req.VideoId, err)
+		return &course.SaveProgressResponse{Position: req.Position}, nil
+	}
+
+	return &course.SaveProgressResponse{
+		Position:       p.PositionSeconds,
+		WatchedSeconds: p.WatchedSeconds,
+		Completed:      p.Completed,
+	}, nil
 }
 
-// Get 读取上次记住的播放位置（秒）。没有记录返回 0。
+// Get 读取上次播放位置 + 累计观看进度。
 func (l *VideoProgressLogic) Get(req *course.GetProgressRequest) (resp *course.GetProgressResponse, err error) {
-	key := progressKey(req.CourseId, req.VideoId)
-	position := 0
-	if l.svcCtx.Redis != nil {
-		if val, redisErr := l.svcCtx.Redis.Get(key); redisErr == nil && val != "" {
-			if p, parseErr := strconv.Atoi(val); parseErr == nil && p > 0 {
-				position = p
-			}
-		}
+	resp = &course.GetProgressResponse{}
+	if req.UserId <= 0 || l.svcCtx.CourseStore == nil {
+		return resp, nil
 	}
-	return &course.GetProgressResponse{Position: position}, nil
+	p, err := l.svcCtx.CourseStore.GetVideoProgress(req.UserId, int64(req.VideoId))
+	if err != nil {
+		l.Logger.Errorf("读取学习进度失败 user=%d video=%d: %v", req.UserId, req.VideoId, err)
+		return resp, nil
+	}
+	if p == nil {
+		return resp, nil
+	}
+	resp.Position = p.PositionSeconds
+	resp.WatchedSeconds = p.WatchedSeconds
+	resp.DurationSeconds = p.DurationSeconds
+	resp.Completed = p.Completed
+	return resp, nil
 }

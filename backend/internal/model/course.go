@@ -23,23 +23,23 @@ type CourseRow struct {
 
 // VideoRow 对应 course_videos 表一行。
 type VideoRow struct {
-	Id          int64  `db:"id"`
-	CourseId    int64  `db:"course_id"`
-	Name        string `db:"name"`
-	Url         string `db:"url"`
-	ObjectName  string `db:"object_name"`
-	Size        int64  `db:"size"`
+	Id          int64     `db:"id"`
+	CourseId    int64     `db:"course_id"`
+	Name        string    `db:"name"`
+	Url         string    `db:"url"`
+	ObjectName  string    `db:"object_name"`
+	Size        int64     `db:"size"`
 	Faststarted bool      `db:"faststarted"`
 	UploadedAt  time.Time `db:"uploaded_at"`
 }
 
 // ResourceRow 对应 course_resources 表一行。
 type ResourceRow struct {
-	Id         int64  `db:"id"`
-	CourseId   int64  `db:"course_id"`
-	Name       string `db:"name"`
-	Url        string `db:"url"`
-	ObjectName string `db:"object_name"`
+	Id         int64     `db:"id"`
+	CourseId   int64     `db:"course_id"`
+	Name       string    `db:"name"`
+	Url        string    `db:"url"`
+	ObjectName string    `db:"object_name"`
 	Type       string    `db:"type"`
 	Size       int64     `db:"size"`
 	UploadedAt time.Time `db:"uploaded_at"`

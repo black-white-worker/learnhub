@@ -16,7 +16,8 @@ RUN --mount=type=cache,target=/go/pkg/mod go mod download
 # 拷贝源码并编译
 COPY . .
 # 编译缓存同样挂到持久缓存盘：只改一个文件时，增量编译，不整层重编。
-RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 GOOS=linux go build -trimpath -o learningplatform-api learningplatform.go
+# 入口在 cmd/api（拆分微服务时每个服务对应一个 cmd/<name>）。
+RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 GOOS=linux go build -trimpath -o learningplatform-api ./cmd/api
 
 # 阶段二：只保留可执行文件和配置，镜像更小
 # ffmpeg 静态二进制：直接从静态镜像 COPY 进来（Linux ELF，单文件），

@@ -7,8 +7,8 @@ import (
 	"strconv"
 
 	"github.com/zeromicro/go-zero/core/logx"
-	"github.com/zeromicro/go-zero/rest/pathvar"
 	"github.com/zeromicro/go-zero/rest/httpx"
+	"github.com/zeromicro/go-zero/rest/pathvar"
 
 	"learningplatform/internal/app/user"
 	"learningplatform/internal/svc"

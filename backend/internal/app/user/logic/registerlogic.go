@@ -2,7 +2,8 @@ package logic
 
 import (
 	"context"
-	"errors"
+	"net/http"
+	"strings"
 
 	"learningplatform/internal/app/user"
 	"learningplatform/internal/svc"
@@ -38,7 +39,10 @@ const (
 func (l *RegisterLogic) Register(req *user.RegisterRequest) (resp *user.RegisterResponse, err error) {
 	// 1. 基础校验：用户名和密码都不能为空
 	if req.Username == "" || req.Password == "" {
-		return nil, errors.New("用户名和密码不能为空")
+		return nil, user.NewAuthError(http.StatusBadRequest, "用户名和密码不能为空")
+	}
+	if len(req.Password) < minPasswordLength {
+		return nil, user.NewAuthError(http.StatusBadRequest, "密码至少 6 位")
 	}
 
 	// 2. 注册频率限制：Redis INCR 自增计数，第一次设置 60 秒过期
@@ -47,18 +51,21 @@ func (l *RegisterLogic) Register(req *user.RegisterRequest) (resp *user.Register
 	limitKey := "register:limit:" + ip
 	count, err := l.svcCtx.Redis.Incr(limitKey)
 	if err != nil {
-		return nil, errors.New("服务繁忙，请稍后再试")
+		return nil, user.NewAuthError(http.StatusServiceUnavailable, "服务繁忙，请稍后再试")
 	}
 	if count == 1 {
 		// 第一次计数时设置过期时间，窗口结束后自动清零
 		l.svcCtx.Redis.Expire(limitKey, registerLimitWindowSec)
 	}
 	if count > registerLimitPerMinute {
-		return nil, errors.New("注册过于频繁，请稍后再试")
+		return nil, user.NewAuthError(http.StatusTooManyRequests, "注册过于频繁，请稍后再试")
 	}
 
 	// 3. 写入用户表（重复用户名由 UserStore.Add 拦截）
 	if err := l.svcCtx.UserStore.Add(req.Username, req.Password); err != nil {
+		if strings.Contains(err.Error(), "已存在") {
+			return nil, user.NewAuthError(http.StatusConflict, "用户名已存在")
+		}
 		return nil, err
 	}
 

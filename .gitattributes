@@ -1,0 +1,22 @@
+# 换行符统一。
+#
+# 背景：Windows 上 core.autocrlf=true 会把检出后的 .go 文件转成 CRLF，
+# 而 gofmt 输出 LF —— 导致 `gofmt -l` 在本地永远有文件"未格式化"，
+# CI（Linux）却是干净的。这里按文件类型固定换行符。
+* text=auto
+
+*.go    text eol=lf
+*.sql   text eol=lf
+*.md    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.json  text eol=lf
+*.js    text eol=lf
+*.mjs   text eol=lf
+*.vue   text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+Dockerfile text eol=lf
+
+# Windows 脚本保留 CRLF（PowerShell 对 LF 兼容，但 CRLF 更符合本地习惯）
+*.ps1   text eol=crlf

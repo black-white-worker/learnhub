@@ -4,7 +4,7 @@ import (
 	"sort"
 	"testing"
 
-	"learningplatform/internal/oss"
+	"learningplatform/internal/platform/oss"
 )
 
 // sortParts 把分片按 partNumber 升序（ComposeObject 要求按顺序合并）。

@@ -32,15 +32,27 @@ async function handleLogin() {
   try {
     // 调用后端登录接口
     const res = await login({ username: form.username, password: form.password })
-    // 登录成功：token / username / role 存进浏览器 localStorage，跳回首页
-    localStorage.setItem('token', res.data.token)
-    localStorage.setItem('username', res.data.username)
-    localStorage.setItem('role', res.data.role || 'student')
+    // 登录接口返回裸 data（{token,username,role}），但 rawClient/其他调用方
+    // 可能带回 AxiosResponse，这里两种形状都兼容，避免"200 了却没存 token"。
+    const body = res?.data ?? res ?? {}
+    if (!body.token) {
+      throw new Error('登录响应缺少 token')
+    }
+    // 登录成功：token / username / role 存进浏览器 localStorage
+    localStorage.setItem('token', body.token)
+    localStorage.setItem('username', body.username || form.username)
+    localStorage.setItem('role', body.role || 'student')
+    if (body.mustChangePassword) {
+      // 初始账号 / 被重置过密码：直接引导到个人中心改密
+      ElMessage.warning('请先修改初始密码')
+      router.push({ path: '/profile', query: { forcePassword: '1' } })
+      return
+    }
     ElMessage.success('登录成功')
     router.push('/')
   } catch (e) {
-    // 后端 go-zero 默认返回 {"message":"..."}
-    ElMessage.error(e.response?.data?.message || e.response?.data?.msg || '账号或密码错误')
+    // 后端统一错误是 {code,message}；网络/解析异常则退回通用提示
+    ElMessage.error(e.response?.data?.message || e.response?.data?.msg || e.message || '账号或密码错误')
   } finally {
     loading.value = false
   }
@@ -64,7 +76,7 @@ async function handleLogin() {
           </el-button>
         </el-form-item>
       </el-form>
-      <p class="tip">测试账号：admin / 123456</p>
+      <p class="tip">演示账号：admin / 123456（首次登录需修改密码）</p>
       <p class="tip">没有账号？<router-link to="/register">去注册</router-link></p>
     </el-card>
   </div>

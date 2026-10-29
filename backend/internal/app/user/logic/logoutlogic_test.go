@@ -26,7 +26,7 @@ func TestLogoutLogic_Success(t *testing.T) {
 	}
 
 	// 3. 模拟鉴权中间件放入 context 的 token 与会话，调用登出逻辑
-	ctx := context.WithValue(context.Background(), user.AuthTokenKey,loginResp.Token)
+	ctx := context.WithValue(context.Background(), user.AuthTokenKey, loginResp.Token)
 	ctx = context.WithValue(ctx, user.AuthSessionKey, model.SessionUser{Username: "admin"})
 	logoutLogic := NewLogoutLogic(ctx, svcCtx)
 	out, err := logoutLogic.Logout(loginResp.Token)
@@ -46,7 +46,7 @@ func TestLogoutLogic_Success(t *testing.T) {
 
 // 测试用例 2：对不存在的 token 登出 → 不报错（Redis DEL 幂等）
 func TestLogoutLogic_Idempotent(t *testing.T) {
-	ctx := context.WithValue(context.Background(), user.AuthTokenKey,"not-exist-token")
+	ctx := context.WithValue(context.Background(), user.AuthTokenKey, "not-exist-token")
 	ctx = context.WithValue(ctx, user.AuthSessionKey, model.SessionUser{Username: "nobody"})
 
 	l := NewLogoutLogic(ctx, newTestSvcCtx())

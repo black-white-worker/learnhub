@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"learningplatform/internal/config"
-	"learningplatform/internal/app/course"
 	"learningplatform/internal/svc"
 )
 
@@ -24,7 +23,7 @@ func newListTestSvcCtx() *svc.ServiceContext {
 func TestListLogic_NotEmpty(t *testing.T) {
 	l := NewListLogic(context.Background(), newListTestSvcCtx())
 
-	resp, err := l.List()
+	resp, err := l.List(1, 20)
 	if err != nil {
 		t.Fatalf("期望列表接口成功，却报错: %v", err)
 	}
@@ -37,7 +36,7 @@ func TestListLogic_NotEmpty(t *testing.T) {
 func TestListLogic_ContainsPresetCourse(t *testing.T) {
 	l := NewListLogic(context.Background(), newListTestSvcCtx())
 
-	resp, err := l.List()
+	resp, err := l.List(1, 20)
 	if err != nil {
 		t.Fatalf("期望列表接口成功，却报错: %v", err)
 	}

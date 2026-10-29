@@ -76,7 +76,15 @@ async function saveEdit() {
 }
 
 // 点击视频 → 跳到观看页（路由由「课程观看」分支提供）
+// 没有观看权限时（未登录 / 不在绑定班级）给出原因，而不是让学生点进去吃 403
 function goWatch(video) {
+  if (!detail.value?.canWatch) {
+    ElMessage.warning(detail.value?.mediaReason || '登录后即可学习该课程')
+    if (!localStorage.getItem('token')) {
+      router.push({ path: '/login', query: { redirect: route.fullPath } })
+    }
+    return
+  }
   router.push(`/course/${courseId.value}/watch/${video.id}`)
 }
 
@@ -126,9 +134,8 @@ async function onUploadVideo(option) {
   uploading.value = true
   try {
     const fd = new FormData()
-    fd.append('courseId', String(courseId.value))
     fd.append('files', option.file)
-    await uploadCourseVideos(fd)
+    await uploadCourseVideos(courseId.value, fd)
     ElMessage.success('视频上传成功')
     option.onSuccess?.(null)
     loadDetail()
@@ -185,6 +192,14 @@ async function onUploadVideo(option) {
       <!-- 内容区：视频 / 资源 tab -->
       <el-tabs class="tabs" v-model="activeTab">
         <el-tab-pane label="课程视频" name="videos">
+          <el-alert
+            v-if="!detail.canWatch"
+            class="lock-tip"
+            type="info"
+            :closable="false"
+            show-icon
+            :title="detail.mediaReason || '登录后即可学习该课程'"
+          />
           <div v-if="isOwner" class="upload-bar">
             <el-upload
               :show-file-list="false"
@@ -217,7 +232,18 @@ async function onUploadVideo(option) {
         </el-tab-pane>
 
         <el-tab-pane label="课程资源" name="resources">
-          <CourseResourcePanel :course-id="courseId" :can-edit="isOwner" />
+          <CourseResourcePanel
+            v-if="detail.canWatch"
+            :course-id="courseId"
+            :can-edit="isOwner"
+          />
+          <el-alert
+            v-else
+            type="info"
+            :closable="false"
+            show-icon
+            :title="detail.mediaReason || '登录后即可查看课程资料'"
+          />
         </el-tab-pane>
       </el-tabs>
     </template>
@@ -324,6 +350,10 @@ async function onUploadVideo(option) {
   align-items: center;
   gap: 12px;
   margin: 12px 0 16px;
+}
+
+.lock-tip {
+  margin: 12px 0;
 }
 
 .upload-tip {

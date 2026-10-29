@@ -1,107 +1,129 @@
-import axios from 'axios'
+// 前端 API 层。
+//
+// 约定：
+//   - 所有请求都走 client.js 里的实例（统一注入 token、统一 401 跳转）；
+//   - 老页面按 `res.data.xxx` 取值，所以这里用 rawClient（不解包信封）；
+//     新代码可以直接用 client.js 默认导出的 client（自动解包 + 抛错）；
+//   - 上传类接口的 courseId 放在 query 里：后端需要"先鉴权、再读 body"，
+//     避免未授权请求先把大文件写进临时目录。
 
-// 统一的后端请求实例：
-// baseURL 为 /api，配合 vite.config.js 里的代理
-const request = axios.create({
-  baseURL: '/api',
-  timeout: 10000,
-})
+import { rawClient as request } from './client.js'
 
-// 全局请求拦截器：自动从 localStorage 读取 token 并带上 Authorization 头。
-// 课程路由已加登录中间件，不带 token 会返回 401，导致首页课程列表为空。
-request.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token')
-  if (token) {
-    config.headers.Authorization = 'Bearer ' + token
-  }
-  return config
-})
-
-// 登录接口：提交 {username, password}，成功返回 {token, username}
+// ===== 认证 =====
 export function login(data) {
   return request.post('/user/login', data)
 }
 
-// 注册接口：提交 {username, password}，成功返回 {username}
 export function register(data) {
   return request.post('/user/register', data)
 }
 
-// 课程创建接口（来自「课程创建」分支）：提交 {name, intro, teacher}，成功返回 {id, name}
+// 退出登录：必须调后端删除 Redis 会话，否则 token 在 24 小时内仍然有效
+export function logout() {
+  return request.post('/user/logout')
+}
+
+// 当前用户信息（角色 / 是否需要改密以服务端为准）
+export function fetchInfo() {
+  return request.get('/user/info')
+}
+
+// 修改自己的密码（必须提供旧密码）
+export function changePassword(data) {
+  return request.post('/user/password', data)
+}
+
+// ===== 课程 =====
 export function createCourse(data) {
   return request.post('/course/create', data)
 }
 
-// 课程列表接口（来自「课程列表」分支）：GET /api/course/list，成功返回 {courses: [...]}
 export function fetchCourseList() {
   return request.get('/course/list')
 }
 
-// 课程封面上传接口：提交 FormData（courseId + file）
-// 成功返回 {courseId, coverUrl, coverThumbUrl}
-// 注意：data 是 FormData 时 axios 会自动带上 multipart/form-data 及 boundary，
-// 不要手动设置 Content-Type，否则会丢失 boundary 导致后端解析失败
-export function uploadCourseCover(data) {
-  return request.post('/course/upload/cover', data)
-}
-
-// 课程视频上传接口：提交 FormData（courseId + files，支持一次多个视频文件）
-// 成功返回 {courseId, videos: [{id, name, url, size, uploadedAt}]}
-export function uploadCourseVideos(data) {
-  return request.post('/course/upload/videos', data)
-}
-
-// ===== 以下为「课程观看」分支新增 =====
-
-// 获取视频播放信息：GET /api/course/video/play/:courseId/:videoId
-export function getVideoPlay(courseId, videoId) {
-  return request.get(`/course/video/play/${courseId}/${videoId}`)
-}
-
-// 上报播放进度（position 单位：秒）
-export function saveVideoProgress(courseId, videoId, position) {
-  return request.post(`/course/video/progress/${courseId}/${videoId}`, { position })
-}
-
-// 读取上次播放进度（秒）
-export function fetchVideoProgress(courseId, videoId) {
-  return request.get(`/course/video/progress/${courseId}/${videoId}`)
-}
-
-// ===== 以下为「课程资源」分支新增 =====
-
-// 上传课程文档资源（PPT / Word / PDF）：提交 FormData（courseId + file）
-// 成功返回 {courseId, resource: {id, name, url, size, type, uploadedAt}}
-export function uploadCourseResource(data) {
-  return request.post('/course/upload/resource', data)
-}
-
-// 课程资源列表：GET /api/course/resources/:courseId
-export function fetchCourseResources(courseId) {
-  return request.get(`/course/resources/${courseId}`)
-}
-
-// 删除课程资源：DELETE /api/course/resource/:courseId/:resourceId
-export function deleteCourseResource(courseId, resourceId) {
-  return request.delete(`/course/resource/${courseId}/${resourceId}`)
-}
-
-// ===== 以下为「课程编辑」分支新增 =====
-
-// 课程详情接口：GET /api/course/detail/:id
-// 成功返回课程完整信息（封面 / 视频列表），供课程详情页使用
 export function getCourseDetail(id) {
   return request.get(`/course/detail/${id}`)
 }
 
-// 编辑课程基本信息：PUT /api/course/edit，提交 {id, name, intro, teacher}
 export function editCourse(data) {
   return request.put('/course/edit', data)
 }
 
-// 删除课程：DELETE /api/course/delete/:id
 export function deleteCourse(id) {
   return request.delete(`/course/delete/${id}`)
+}
+
+// 上传：courseId 走 query，FormData 只放文件。
+// 超时单独放宽到 10 分钟：500MB 视频在慢网络下远超默认 20 秒。
+const UPLOAD_TIMEOUT = 10 * 60 * 1000
+
+export function uploadCourseCover(courseId, data) {
+  return request.post('/course/upload/cover', data, { params: { courseId }, timeout: UPLOAD_TIMEOUT })
+}
+
+export function uploadCourseVideos(courseId, data) {
+  return request.post('/course/upload/videos', data, { params: { courseId }, timeout: UPLOAD_TIMEOUT })
+}
+
+export function uploadCourseResource(courseId, data) {
+  return request.post('/course/upload/resource', data, { params: { courseId }, timeout: UPLOAD_TIMEOUT })
+}
+
+// ===== 课程观看 / 资源 =====
+export function getVideoPlay(courseId, videoId) {
+  return request.get(`/course/video/play/${courseId}/${videoId}`)
+}
+
+export function saveVideoProgress(courseId, videoId, positionOrOpts) {
+  const payload =
+    typeof positionOrOpts === 'number'
+      ? { position: positionOrOpts }
+      : { position: 0, watchedDelta: 0, duration: 0, ...positionOrOpts }
+  return request.post(`/course/video/progress/${courseId}/${videoId}`, payload)
+}
+
+export function fetchVideoProgress(courseId, videoId) {
+  return request.get(`/course/video/progress/${courseId}/${videoId}`)
+}
+
+export function fetchCourseResources(courseId) {
+  return request.get(`/course/resources/${courseId}`)
+}
+
+export function deleteCourseResource(courseId, resourceId) {
+  return request.delete(`/course/resource/${courseId}/${resourceId}`)
+}
+
+// ===== 考试 =====
+export function getExamDetail(id) {
+  return request.get(`/exam/${id}`)
+}
+
+export function startExam(id) {
+  return request.post(`/exam/${id}/start`)
+}
+
+// 保存作答草稿：考试进行中每 15 秒左右调一次，超时收卷按最后一份判分
+export function saveExamDraft(id, answers) {
+  return request.post(`/exam/${id}/draft`, { answers })
+}
+
+export function submitExam(id, answers) {
+  return request.post(`/exam/${id}/submit`, { answers })
+}
+
+export function gradeExamSubmission(submissionId, data) {
+  return request.post(`/exam/submission/${submissionId}/grade`, data)
+}
+
+export function reportExamViolation(id) {
+  return request.post(`/exam/${id}/violation`)
+}
+
+// ===== 消息中心 =====
+export function fetchNotifications() {
+  return request.get('/notifications')
 }
 
 export default request

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"learningplatform/internal/config"
-	"learningplatform/internal/oss"
+	"learningplatform/internal/platform/oss"
 	"learningplatform/internal/svc"
 )
 

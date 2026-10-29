@@ -81,7 +81,18 @@
         </div>
 
         <el-divider />
-        <h4>学生提交（{{ submissions.length }} 人）</h4>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+          <h4>学生提交（{{ submissions.length }} 人）</h4>
+          <!-- 逐份批阅（SpeedGrader）：一次取回整份队列，本地上下翻，不必逐份开关弹窗 -->
+          <el-button
+            v-if="currentHw"
+            size="small"
+            type="success"
+            @click="$router.push(`/assignment/${currentHw.id}/grade`)"
+          >
+            逐份批阅
+          </el-button>
+        </div>
         <el-table :data="submissions" size="small" max-height="280">
           <el-table-column prop="username" label="学生" width="120" />
           <el-table-column prop="autoScore" label="客观题自动分" width="120" />

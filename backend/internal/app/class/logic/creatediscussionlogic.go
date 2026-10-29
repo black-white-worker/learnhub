@@ -4,8 +4,8 @@ import (
 	"context"
 	"strconv"
 
-	"learningplatform/internal/model"
 	"learningplatform/internal/app/class"
+	"learningplatform/internal/model"
 	"learningplatform/internal/svc"
 )
 

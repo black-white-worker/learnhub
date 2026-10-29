@@ -1,14 +1,20 @@
 ﻿# 学习平台 一键启动脚本（参考 S:\videonest\scripts 的风格）
 # 用法：
-#   .\start.ps1              # 启动（默认自动检测：源码没变就跳过构建）
-#   .\start.ps1 -ForceBuild  # 强制重新构建镜像
-#   .\start.ps1 -SkipBuild   # 强制跳过构建，直接启动（更快）
-#   .\start.ps1 -NoBrowser   # 启动后不自动打开浏览器
+#   .\start.ps1                    # 启动（默认自动检测：源码没变就跳过构建）
+#   .\start.ps1 -ForceBuild        # 强制重新构建镜像
+#   .\start.ps1 -SkipBuild         # 强制跳过构建，直接启动（更快）
+#   .\start.ps1 -NoBrowser         # 启动后不自动打开浏览器
+#   .\start.ps1 -HealthTimeout 120 # 修改后端健康检测超时（单位秒，默认90）
+#   .\start.ps1 -HealthUrl "http://127.0.0.1:8888/healthz"
+#   .\start.ps1 -Quiet             # 精简日志，减少刷屏
 
 param(
     [switch]$SkipBuild,
     [switch]$ForceBuild,
-    [switch]$NoBrowser
+    [switch]$NoBrowser,
+    [int]$HealthTimeout = 90,
+    [string]$HealthUrl = $null,
+    [switch]$Quiet
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,14 +23,34 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Split-Path -Parent $ScriptDir
 $EnvFile = Join-Path $ProjectRoot ".env"
+$ComposeFile = Join-Path $ProjectRoot "docker-compose.yml"
+$ScriptStateVersion = "v2" # 脚本哈希算法版本，升级脚本自动作废旧指纹
 
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  学习平台 一键启动" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 
+# 日志封装，兼容 -Quiet
+function Write-Log {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Message,
+        [ValidateSet("Info","Warn","Error")]
+        [string]$Level = "Info"
+    )
+    if ($Quiet -and $Level -eq "Info") { return }
+    $color = switch($Level) {
+        "Warn"  { "Yellow" }
+        "Error" { "Red" }
+        default { "White" }
+    }
+    Write-Host $Message -ForegroundColor $color
+}
+
 # 从 .env 读取一个键的值（取第一个匹配行，去掉行内注释）
 function Get-EnvValue([string]$Key) {
+    if (-not (Test-Path -LiteralPath $EnvFile)) { return $null }
     $Line = Get-Content -LiteralPath $EnvFile | Where-Object { $_ -match "^\s*$Key\s*=" } | Select-Object -First 1
     if ($Line) {
         $Value = ($Line -split "=", 2)[1].Trim()
@@ -46,10 +72,8 @@ function Invoke-DockerCmd {
     }
     $ErrorActionPreference = "Continue"
     try {
-        # 把 docker 输出逐行转成正常颜色打印：
-        # 构建/启动时 docker 把进度写到 stderr，5.1 会用红色"错误样式"显示它
-        # （看起来像报错，其实是正常日志）；逐行 Write-Host 后不再显示成错误。
         docker $args 2>&1 | ForEach-Object { Write-Host $_ }
+        return $LASTEXITCODE
     } finally {
         $ErrorActionPreference = $oldEAP
         if ($oldNative -ne $null) {
@@ -58,9 +82,13 @@ function Invoke-DockerCmd {
     }
 }
 
-# 1. 检查 .env 是否存在
+# 1. 前置文件检查
 if (-not (Test-Path -LiteralPath $EnvFile)) {
-    Write-Host "未找到 .env 文件：$EnvFile（请确认项目文件完整）" -ForegroundColor Red
+    Write-Log "未找到 .env 文件：$EnvFile（请确认项目文件完整）" -Level Error
+    exit 1
+}
+if (-not (Test-Path -LiteralPath $ComposeFile)) {
+    Write-Log "未找到 docker-compose.yml：$ComposeFile" -Level Error
     exit 1
 }
 
@@ -78,40 +106,46 @@ if (-not $MinioApiPort) { $MinioApiPort = "9020" }
 $MinioConsolePort = Get-EnvValue "MINIO_CONSOLE_PORT"
 if (-not $MinioConsolePort) { $MinioConsolePort = "9021" }
 
+# 健康地址优先级：传参 > 默认
+if (-not $HealthUrl) {
+    $HealthUrl = "http://127.0.0.1:$BackendPort/healthz"
+}
+
 # 3. 检查 Docker 引擎是否可用；不可用时自动拉起 Docker Desktop 并等待
 $dockerOk = $false
 try {
-    docker info 2>&1 | Out-Null
-    if ($LASTEXITCODE -eq 0) { $dockerOk = $true }
+    $ec = Invoke-DockerCmd info
+    if ($ec -eq 0) { $dockerOk = $true }
 } catch { }
 
 if (-not $dockerOk) {
-    Write-Host "Docker 引擎未运行，正在启动 Docker Desktop ..." -ForegroundColor Yellow
+    Write-Log "Docker 引擎未运行，正在启动 Docker Desktop ..." -Level Warn
     $dockerDesktop = @(
         "$env:ProgramFiles\Docker\Docker\Docker Desktop.exe",
         "$env:LOCALAPPDATA\Programs\DockerDesktop\Docker Desktop.exe",
         "$env:LOCALAPPDATA\Docker\Docker Desktop.exe"
     ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
     if (-not $dockerDesktop) {
-        Write-Host "找不到 Docker Desktop，请先安装并启动 Docker，再运行本脚本" -ForegroundColor Red
+        Write-Log "找不到 Docker Desktop，请先安装并启动 Docker，再运行本脚本" -Level Error
         exit 1
     }
     Start-Process -FilePath $dockerDesktop
 
-    Write-Host "等待 Docker 引擎就绪（最多 120 秒）..." -ForegroundColor Yellow
+    Write-Log "等待 Docker 引擎就绪（最多 120 秒，Ctrl+C 退出）..." -Level Warn
     $ready = $false
     for ($i = 0; $i -lt 40; $i++) {
         Start-Sleep -Seconds 3
         try {
-            docker info 2>&1 | Out-Null
-            if ($LASTEXITCODE -eq 0) { $ready = $true; break }
+            $ec = Invoke-DockerCmd info
+            if ($ec -eq 0) { $ready = $true; break }
         } catch { }
+        Write-Host "  等待Docker就绪中 $($i*3)s / 120s"
     }
     if (-not $ready) {
-        Write-Host "Docker 引擎 120 秒内未就绪，请手动检查 Docker Desktop" -ForegroundColor Red
+        Write-Log "Docker 引擎 120 秒内未就绪，请手动检查 Docker Desktop" -Level Error
         exit 1
     }
-    Write-Host "Docker 引擎已就绪。" -ForegroundColor Green
+    Write-Log "Docker 引擎已就绪。"
 }
 
 # 4. 构建并启动容器（默认行为：源码没变就跳过构建；代码变化、首次运行或 -ForceBuild 才重建）
@@ -128,13 +162,31 @@ function Get-SourceHash {
         if (Test-Path -LiteralPath $p) { $files += $p }
     }
     # 后端全部源码 + 前端 src 与根目录配置文件（Dockerfile/nginx.conf/package.json 等）
-    $files += Get-ChildItem -LiteralPath (Join-Path $ProjectRoot "backend") -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
-    $files += Get-ChildItem -LiteralPath (Join-Path $ProjectRoot "frontend\src") -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
-    $files += Get-ChildItem -LiteralPath (Join-Path $ProjectRoot "frontend") -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+    $backFiles = Get-ChildItem -LiteralPath (Join-Path $ProjectRoot "backend") -Recurse -File -ErrorAction SilentlyContinue
+    $frontSrcFiles = Get-ChildItem -LiteralPath (Join-Path $ProjectRoot "frontend\src") -Recurse -File -ErrorAction SilentlyContinue
+    $frontRootFiles = Get-ChildItem -LiteralPath (Join-Path $ProjectRoot "frontend") -File -ErrorAction SilentlyContinue
+    $allCandidate = @($backFiles, $frontSrcFiles, $frontRootFiles) | Where-Object { $_ }
 
-    $digest = ($files | Sort-Object | ForEach-Object {
-        (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash
-    }) -join "`n"
+    foreach ($item in $allCandidate) {
+        foreach ($f in $item) {
+            try {
+                $files += $f.FullName
+            } catch {
+                # 跳过锁定/无权限文件，不中断哈希计算
+                continue
+            }
+        }
+    }
+
+    $digestLines = @($ScriptStateVersion)
+    $digestLines += ($files | Sort-Object | ForEach-Object {
+        try {
+            (Get-FileHash -LiteralPath $_ -Algorithm SHA256 -ErrorAction Stop).Hash
+        } catch {
+            $null
+        }
+    })
+    $digest = $digestLines -join "`n"
     return (Get-FileHash -InputStream ([IO.MemoryStream]::new([Text.Encoding]::UTF8.GetBytes($digest))) -Algorithm SHA256).Hash
 }
 
@@ -148,25 +200,44 @@ if (-not $needBuild) {
     }
     if ($lastHash -eq $currentHash) {
         $needBuild = $false
-        Write-Host "源码没有变化，跳过构建，直接启动 ..." -ForegroundColor Green
+        Write-Log "源码没有变化，跳过构建，直接启动 ..."
     } else {
         $needBuild = $true
-        Write-Host "源码有变化或首次运行，开始构建 ..." -ForegroundColor Cyan
+        Write-Log "源码有变化或首次运行，开始构建 ..."
     }
 } else {
-    Write-Host "检测到 -ForceBuild，强制重新构建 ..." -ForegroundColor Cyan
+    Write-Log "检测到 -ForceBuild，强制重新构建 ..."
 }
 
 if ($SkipBuild) {
-    Write-Host "跳过构建，直接启动容器 ..." -ForegroundColor Cyan
-    Invoke-DockerCmd compose up -d
+    Write-Log "跳过构建，直接启动容器 ..."
+    $ec = Invoke-DockerCmd compose up -d
 } elseif ($needBuild) {
-    Invoke-DockerCmd compose up -d --build
+    if ($ForceBuild) {
+        # --no-cache 不是 up 的合法参数（会报 unknown flag），只能用于 build。
+        # 强制构建拆成三步：前端无缓存重建 → 后端用缓存重建 → 启动。
+        # 只有【前端】需要 --no-cache：Windows/WSL2 下 BuildKit 偶尔误判 COPY 层未变化，
+        # 导致 npm run build 没真正跑、dist 还是旧的（表现为改了前端代码但页面没变）。
+        # 【后端】绝不加 --no-cache：阶段二要 apk 安装 LibreOffice 等 238 个包（耗时 90s+），
+        # 该层只依赖 alpine 基础镜像和 apk 命令本身，与后端源码无关、内容始终稳定，
+        # 应始终命中 Docker 层缓存；一旦加 --no-cache 就会每次重新下载+安装一次。
+        Write-Log "强制无缓存重建前端镜像 ..."
+        $ec = Invoke-DockerCmd compose build --no-cache frontend
+        if ($ec -eq 0) {
+            Write-Log "重建后端镜像（使用层缓存，跳过 LibreOffice 重装）..."
+            $ec = Invoke-DockerCmd compose build backend
+        }
+        if ($ec -eq 0) {
+            $ec = Invoke-DockerCmd compose up -d
+        }
+    } else {
+        $ec = Invoke-DockerCmd compose up -d --build
+    }
 } else {
-    Invoke-DockerCmd compose up -d
+    $ec = Invoke-DockerCmd compose up -d
 }
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "docker compose 启动失败，请查看上面的报错" -ForegroundColor Red
+if ($ec -ne 0) {
+    Write-Log "docker compose 启动失败，请查看上面的报错" -Level Error
     exit 1
 }
 
@@ -177,30 +248,36 @@ if ($needBuild -and -not $SkipBuild) {
         New-Item -ItemType Directory -Path $stateDir | Out-Null
     }
     [IO.File]::WriteAllText($stateFile, (Get-SourceHash), [Text.Encoding]::UTF8)
-    Write-Host "已记录本次构建指纹，下次源码没变化将跳过构建" -ForegroundColor DarkGray
+    Write-Log "已记录本次构建指纹，下次源码没变化将跳过构建"
 }
 
 # 4.1 清理旧构建的悬空镜像（dangling image）
 # docker compose build 每次会生成新镜像，旧版本会变成"悬空镜像"堆积占磁盘。
 # 这里只删没有任何标签/容器引用的悬空镜像，不影响正在使用的镜像，安全。
-Write-Host "清理旧构建的悬空镜像 ..." -ForegroundColor Cyan
-Invoke-DockerCmd image prune -f
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "镜像清理失败（不影响服务运行，可忽略）" -ForegroundColor Yellow
+Write-Log "清理旧构建的悬空镜像 ..."
+$ec = Invoke-DockerCmd image prune -f
+if ($ec -ne 0) {
+    Write-Log "镜像清理失败（不影响服务运行，可忽略）" -Level Warn
 }
 
-# 5. 等待后端接口就绪（最多 90 秒）
-Write-Host "等待服务就绪 ..." -ForegroundColor Yellow
+# 5. 等待后端接口就绪（可配置超时）
+Write-Log "等待服务就绪（最长 ${HealthTimeout}s，检测地址：$HealthUrl）..." -Level Warn
 $ready = $false
-for ($i = 0; $i -lt 30; $i++) {
+$round = [math]::Floor($HealthTimeout / 3)
+for ($i = 0; $i -lt $round; $i++) {
     Start-Sleep -Seconds 3
     try {
-        $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$BackendPort/api/from/you" -UseBasicParsing -TimeoutSec 3
-        if ($resp.StatusCode -eq 200) { $ready = $true; break }
-    } catch { }
+        $resp = Invoke-WebRequest -Uri $HealthUrl -UseBasicParsing -TimeoutSec 3
+        if ($resp.StatusCode -eq 200) {
+            $ready = $true
+            break
+        }
+    } catch {
+        Write-Host "  后端未就绪，等待中 $($i*3+3)s / ${HealthTimeout}s"
+    }
 }
 if (-not $ready) {
-    Write-Host "服务未就绪，打印容器状态与后端日志：" -ForegroundColor Red
+    Write-Log "服务未就绪，打印容器状态与后端日志：" -Level Error
     Invoke-DockerCmd compose ps
     Invoke-DockerCmd compose logs --tail=60 backend
     exit 1
@@ -213,7 +290,7 @@ Write-Host "  启动成功！" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host "  前端页面:  http://localhost:$HttpPort" -ForegroundColor Green
 Write-Host "  后端 API:  http://localhost:$BackendPort"
-Write-Host "  测试账号:  admin / 123456"
+Write-Host "  测试账号:  admin / 123456（首次登录需修改密码）"
 Write-Host "  MySQL:     127.0.0.1:$DbPort  (root / 密码见 .env)"
 Write-Host "  Redis:     127.0.0.1:$RedisPort"
 Write-Host "  MinIO:     http://127.0.0.1:$MinioApiPort  (控制台 http://127.0.0.1:$MinioConsolePort  minioadmin/minioadmin)"
@@ -228,8 +305,10 @@ if (-not $NoBrowser) {
         $edge = "${env:ProgramFiles}\Microsoft\Edge\Application\msedge.exe"
     }
     if (Test-Path -LiteralPath $edge) {
+        Write-Log "使用 Edge 打开前端页面"
         Start-Process -FilePath $edge -ArgumentList "http://localhost:$HttpPort"
     } else {
+        Write-Log "使用系统默认浏览器打开前端页面"
         Start-Process "http://localhost:$HttpPort"
     }
 }
@@ -239,8 +318,8 @@ if (-not $NoBrowser) {
 # 下载基础镜像 + 重装依赖，反而更慢。实测 7 天窗口清不动（缓存条目都是
 # 最近 7 天内创建的），24 小时窗口最合适：每次启动清掉"昨天及更早"的缓存，
 # 让缓存量锁死在"最近一天的量"，不会无限堆积。
-Write-Host "清理 24 小时前的构建缓存 ..." -ForegroundColor Cyan
-Invoke-DockerCmd builder prune -f --filter until=24h
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "构建缓存清理失败（不影响服务运行，可忽略）" -ForegroundColor Yellow
+Write-Log "清理 24 小时前的构建缓存（保留当日构建缓存加速）..."
+$ec = Invoke-DockerCmd builder prune -f --filter until=24h
+if ($ec -ne 0) {
+    Write-Log "构建缓存清理失败（不影响服务运行，可忽略）" -Level Warn
 }

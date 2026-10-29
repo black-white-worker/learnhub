@@ -9,17 +9,17 @@ import (
 
 // UploadSessionRow 分片上传会话表（对应 V18 建的 upload_sessions）。
 type UploadSessionRow struct {
-	Id          int64     `db:"id" json:"id"`
-	UploadID    string    `db:"upload_id" json:"uploadId"`
-	CourseId    int64     `db:"course_id" json:"courseId"`
-	ObjectName  string    `db:"object_name" json:"objectName"`
-	FileName    string    `db:"file_name" json:"fileName"`
-	FileSize    int64     `db:"file_size" json:"fileSize"`
-	ContentType string    `db:"content_type" json:"contentType"`
-	Status      string    `db:"status" json:"status"` // init/completed/aborted
-	ExpireAt    time.Time `db:"expire_at" json:"expireAt"`
-	CreatedBy   int64     `db:"created_by" json:"createdBy"`
-	CreatedAt   time.Time `db:"created_at" json:"createdAt"`
+	Id          int64      `db:"id" json:"id"`
+	UploadID    string     `db:"upload_id" json:"uploadId"`
+	CourseId    int64      `db:"course_id" json:"courseId"`
+	ObjectName  string     `db:"object_name" json:"objectName"`
+	FileName    string     `db:"file_name" json:"fileName"`
+	FileSize    int64      `db:"file_size" json:"fileSize"`
+	ContentType string     `db:"content_type" json:"contentType"`
+	Status      string     `db:"status" json:"status"` // init/completed/aborted
+	ExpireAt    time.Time  `db:"expire_at" json:"expireAt"`
+	CreatedBy   int64      `db:"created_by" json:"createdBy"`
+	CreatedAt   time.Time  `db:"created_at" json:"createdAt"`
 	CompletedAt *time.Time `db:"completed_at" json:"completedAt,omitempty"`
 }
 

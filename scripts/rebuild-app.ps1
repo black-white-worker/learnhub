@@ -58,7 +58,7 @@ $ready = $false
 for ($i = 0; $i -lt 20; $i++) {
     Start-Sleep -Seconds 3
     try {
-        $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$BackendPort/api/from/you" -UseBasicParsing -TimeoutSec 3
+        $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$BackendPort/healthz" -UseBasicParsing -TimeoutSec 3
         if ($resp.StatusCode -eq 200) { $ready = $true; break }
     } catch { }
 }

@@ -6,6 +6,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"learningplatform/internal/app/course"
 	"testing"
 )
 

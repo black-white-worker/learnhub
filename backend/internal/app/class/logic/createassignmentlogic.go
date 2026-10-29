@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	"learningplatform/internal/model"
 	"learningplatform/internal/app/class"
+	"learningplatform/internal/model"
 	"learningplatform/internal/svc"
 )
 

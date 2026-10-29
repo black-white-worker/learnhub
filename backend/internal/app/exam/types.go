@@ -3,12 +3,12 @@ package exam
 
 // CreateExamReq 创建考试
 type CreateExamReq struct {
-	Title          string `json:"title"`
-	Description    string `json:"description" form:"description,optional"`
-	StartAt        string `json:"startAt"`        // "2006-01-02T15:04"
-	EndAt          string `json:"endAt"`          // "2006-01-02T15:04"
-	DurationMin    int    `json:"durationMinutes" form:"durationMinutes,optional"`
-	TotalScore     int    `json:"totalScore" form:"totalScore,optional"`
+	Title       string `json:"title"`
+	Description string `json:"description" form:"description,optional"`
+	StartAt     string `json:"startAt"` // "2006-01-02T15:04"
+	EndAt       string `json:"endAt"`   // "2006-01-02T15:04"
+	DurationMin int    `json:"durationMinutes" form:"durationMinutes,optional"`
+	TotalScore  int    `json:"totalScore" form:"totalScore,optional"`
 }
 
 type CreateExamResp struct {
@@ -38,6 +38,17 @@ type SubmitResp struct {
 	AutoScore int    `json:"autoScore,omitempty"`
 }
 
+// SaveDraftReq 保存作答草稿（考试进行中，前端每 15 秒左右上报一次）。
+// 与交卷的区别：草稿不改状态、不判分，只覆盖 answers 字段。
+type SaveDraftReq struct {
+	Answers map[string]string `json:"answers"`
+}
+
+// SaveDraftResp 草稿保存结果。
+type SaveDraftResp struct {
+	SavedAt string `json:"savedAt"` // RFC3339
+}
+
 // GradeReq 老师手批
 type GradeReq struct {
 	TeacherScore int    `json:"teacherScore"`
@@ -47,7 +58,7 @@ type GradeReq struct {
 // StartExamResp 学生开考响应：返回考试时长和截止时间，前端据此倒计时。
 type StartExamResp struct {
 	ExamId      int64  `json:"examId"`
-	StartedAt   string `json:"startedAt"`   // RFC3339
+	StartedAt   string `json:"startedAt"`  // RFC3339
 	DeadlineAt  string `json:"deadlineAt"` // 学生个人交卷截止（= start+duration 与 end_at 的较早者）
 	DurationMin int    `json:"durationMinutes"`
 }
