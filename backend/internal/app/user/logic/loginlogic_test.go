@@ -2,7 +2,6 @@ package logic
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -29,19 +28,8 @@ func newTestSvcCtx() *svc.ServiceContext {
 	return svc.NewServiceContext(c)
 }
 
-// TestMain：本包用例是集成测试，依赖真实 MySQL + Redis。
-// 未配置连接信息时整包跳过，避免为了"能跑"而把密码写死进代码。
-func TestMain(m *testing.M) {
-	if os.Getenv("TEST_MYSQL_DSN") == "" {
-		fmt.Println("跳过 user/logic 集成测试：未设置 TEST_MYSQL_DSN")
-		return
-	}
-	if _, ok := os.LookupEnv("TEST_REDIS_PASS"); !ok {
-		fmt.Println("跳过 user/logic 集成测试：未设置 TEST_REDIS_PASS")
-		return
-	}
-	os.Exit(m.Run())
-}
+// 依赖判定与整包跳过统一放在 main_test.go 的 TestMain 里（一个包只能有一个 TestMain），
+// 这里不要再声明。
 
 // 测试用例 1：用户名密码都正确 → 登录成功，返回 token（admin/123456 由初始化 SQL 预置）
 func TestLoginLogic_Success(t *testing.T) {

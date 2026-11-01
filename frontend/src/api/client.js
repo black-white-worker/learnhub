@@ -1,15 +1,5 @@
 // 统一的前端请求层。
-//
-// 改造前的问题：
-//   1. 大约 60 处重复写 `headers: { Authorization: 'Bearer ' + token }`，
-//      漏写一处就是"神秘 401"；
-//   2. 没有任何统一处理 401 的地方 —— token 24 小时过期后，
-//      用户看到的是一堆"加载失败"，而不是"请重新登录"；
-//   3. 后端错误是 {code,message}，每个页面自己 `e.response?.data?.message`，
-//      还出现过读 `.msg` 取不到提示的 bug。
-//
-// 这里的做法：
-//   - 给 **全局 axios** 挂请求/响应拦截器（现有视图里手写的 axios.get 也自动受益）；
+//   - 给全局 axios挂请求/响应拦截器（现有视图里手写的 axios.get 也自动受益）；
 //   - 额外导出一个 client 实例，自动解包 {code,message,data}，新代码统一用它；
 //   - 401 统一清会话 + 跳登录，并在跳转前记住原始地址。
 
@@ -18,7 +8,7 @@ import { ElMessage } from 'element-plus'
 
 // ===== 1. 让所有 axios 请求自动带 token =====
 //
-// 注意：axios.create() 出来的实例 **不会继承** 全局 axios 的拦截器，
+// 注意：axios.create() 出来的实例不会继承全局 axios 的拦截器，
 // 必须给每个实例单独挂。之前只给全局 axios 挂了请求拦截器，
 // client / rawClient 的请求（登录、改密、通知、课程接口）都没带 Authorization，
 // 表现为"登录成功但立刻 401、又被踢回登录页"。
