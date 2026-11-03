@@ -1,8 +1,7 @@
 """HTTP API：
 - POST /api/ai/chat          SSE 流式答疑
-- POST /api/ai/summary       学习总结
 - POST /api/ai/generate      AI 出题（老师用，返回题目给老师审核）
-- POST /api/ai/grade/callback Go 作业批改结果回调占位（AI 主动调 Go）
+学习总结在 summary.py，会话管理在 session.py。
 """
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -14,8 +13,6 @@ import redis
 from app.core.config import settings
 from app.graph.rag_graph import graph, stream_answer
 from app.rag.session import append_turn, get_history
-from app.rag.embedding import embed
-from app.rag.vector_store import get_vector_store
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 _r = redis.from_url(settings.redis_url, decode_responses=True)
@@ -73,23 +70,6 @@ async def chat(body: ChatReq, req: Request):
         "Cache-Control": "no-cache",
         "X-Accel-Buffering": "no",
     })
-
-
-class SummaryReq(BaseModel):
-    content: str
-    course_id: Optional[int] = 0
-
-
-@router.post("/summary")
-async def summarize(body: SummaryReq, req: Request):
-    """学习总结：提炼 3 个核心考点。"""
-    from openai import AsyncOpenAI
-    llm = AsyncOpenAI(base_url=settings.llm_base_url, api_key=settings.llm_api_key, timeout=settings.llm_timeout)
-    prompt = f"请对下面学习材料精简总结，提炼3个核心考点，输出清晰：\n\n{body.content[:4000]}"
-    resp = await llm.chat.completions.create(
-        model=settings.llm_model, messages=[{"role": "user", "content": prompt}], temperature=0.3,
-    )
-    return {"summary": resp.choices[0].message.content}
 
 
 class GenQuestionReq(BaseModel):
