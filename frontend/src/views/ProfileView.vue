@@ -3,7 +3,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
-import { changePassword } from '../api/index.js'
+import { changePassword, fetchNotificationPrefs, updateNotificationPrefs } from '../api/index.js'
 
 const router = useRouter()
 const profile = ref({ username: '', nickname: '', role: '' })
@@ -106,9 +106,57 @@ async function markAllRead() {
   } catch (e) {}
 }
 
+// ===== 通知偏好（接收渠道开关）=====
+// 后端 notification_preferences 表不预置数据，新用户查不到记录；
+// 这里给一个"业务默认值"：inapp(站内铃铛)默认开、email 默认关。
+// 列表返回的是已显式配置过的渠道，用默认值兜底再叠加，
+// 保证 UI 永远有完整的开关列表，首次切换也会被 Upsert 落库。
+const CHANNEL_DEFS = [
+  { channel: 'inapp', label: '站内通知', desc: '新消息实时推送到顶部铃铛' },
+  { channel: 'email', label: '邮件通知', desc: '重要动态（如审批结果）发到邮箱' },
+]
+const DEFAULT_PREFS = { inapp: 1, email: 0 }
+
+// prefs 以 channel 为键存开关值（1 开 / 0 关），用 reactive 让模板响应式更新
+const prefs = reactive({ ...DEFAULT_PREFS })
+const prefsLoading = ref(false)
+const savingChannel = ref('')
+
+async function loadPrefs() {
+  if (!localStorage.getItem('token')) return
+  prefsLoading.value = true
+  try {
+    const res = await fetchNotificationPrefs()
+    const list = res.data?.data?.prefs || []
+    const merged = { ...DEFAULT_PREFS }
+    list.forEach((p) => { merged[p.channel] = p.enabled })
+    Object.assign(prefs, merged)
+  } catch (e) {
+    // 拉取失败保持默认值，不打扰用户
+  } finally {
+    prefsLoading.value = false
+  }
+}
+
+// 切换开关：先乐观更新 UI，请求失败再回滚，体验更顺滑
+async function togglePref(channel, val) {
+  const prev = prefs[channel]
+  prefs[channel] = val
+  savingChannel.value = channel
+  try {
+    await updateNotificationPrefs({ channel, enabled: val })
+  } catch (e) {
+    prefs[channel] = prev // 回滚到切换前的值
+    ElMessage.error(e.response?.data?.message || '保存失败，请重试')
+  } finally {
+    savingChannel.value = ''
+  }
+}
+
 onMounted(() => {
   load()
   loadAssignments()
+  loadPrefs()
 })
 
 // ===== 修改密码 =====
@@ -253,6 +301,29 @@ async function submitPassword() {
         </div>
       </div>
     </el-card>
+
+    <!-- 通知偏好：控制各渠道是否接收通知，切换后实时落库 -->
+    <el-card class="pref-card" v-loading="prefsLoading">
+      <template #header>
+        <div class="notify-head">
+          <b>通知偏好</b>
+          <span class="all-read">切换后自动保存</span>
+        </div>
+      </template>
+      <div class="pref-list">
+        <div v-for="c in CHANNEL_DEFS" :key="c.channel" class="pref-item">
+          <div class="pref-main">
+            <b>{{ c.label }}</b>
+            <small>{{ c.desc }}</small>
+          </div>
+          <el-switch
+            :model-value="prefs[c.channel] === 1"
+            :loading="savingChannel === c.channel"
+            @change="(v) => togglePref(c.channel, v ? 1 : 0)"
+          />
+        </div>
+      </div>
+    </el-card>
   </div>
 </template>
 
@@ -262,6 +333,15 @@ async function submitPassword() {
 .apply-box { margin-top: 16px; }
 .pwd-card { padding: 12px; margin-bottom: 16px; }
 .notify-card { padding: 12px; }
+.pref-card { padding: 12px; margin-bottom: 16px; }
+.pref-list { display: flex; flex-direction: column; gap: 8px; }
+.pref-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px; border-radius: 8px; border: 1px solid #f1f5f9;
+}
+.pref-item:hover { background: #f8fafc; }
+.pref-main b { font-size: 14px; color: #1f2937; display: block; }
+.pref-main small { color: #9ca3af; font-size: 12px; }
 .assign-card { padding: 12px; margin-bottom: 16px; }
 .assign-list { display: flex; flex-direction: column; gap: 8px; }
 .assign-item {

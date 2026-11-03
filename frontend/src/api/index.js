@@ -126,4 +126,14 @@ export function fetchNotifications() {
   return request.get('/notifications')
 }
 
+// 通知偏好：列出当前用户的渠道开关（inapp/email）
+export function fetchNotificationPrefs() {
+  return request.get('/notification-prefs')
+}
+
+// 更新某渠道的通知偏好（data: { channel: 'inapp' | 'email', enabled: 1 | 0 }）
+export function updateNotificationPrefs(data) {
+  return request.post('/notification-prefs', data)
+}
+
 export default request

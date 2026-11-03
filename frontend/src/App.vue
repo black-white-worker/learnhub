@@ -126,7 +126,6 @@ async function refreshSession() {
 
 // ===== 未读消息数（顶栏铃铛红点）=====
 const unreadCount = ref(0)
-let pollTimer = null
 async function loadUnread() {
   if (!username.value) { unreadCount.value = 0; return }
   try {
@@ -136,17 +135,31 @@ async function loadUnread() {
     // 静默失败，不打扰用户
   }
 }
+
+// ===== 实时通知（WebSocket）=====
+// 用长连接替代 60s 轮询：服务端有新通知时主动推过来，未读数秒级更新。
+// 连接管理抽到 utils/notificationSocket.js（可在 node 下单测）：
+// token 走 query（浏览器握手不能带自定义请求头），协议随页面自动切换（ws/wss）。
+import { createNotificationSocket } from './utils/notificationSocket.js'
+
+const notificationSocket = createNotificationSocket({
+  getToken: () => localStorage.getItem('token'),
+  onUnread: () => { unreadCount.value += 1; loadUnread() },
+  onAnnouncement: () => { unreadCount.value += 1; loadUnread() },
+})
+
 onMounted(() => {
   refreshSession()
   loadUnread()
   window.addEventListener('dsh:session-updated', refreshSession)
-  pollTimer = setInterval(loadUnread, 60000) // 每 60s 拉一次
+  notificationSocket.connect() // 实时推送替代轮询
 })
 onUnmounted(() => {
-  if (pollTimer) clearInterval(pollTimer)
+  notificationSocket.disconnect()
   window.removeEventListener('dsh:session-updated', refreshSession)
 })
-watch(username, loadUnread)
+// 登录态变化（登录 / 退出）时重连，确保用的是最新 token
+watch(username, () => { loadUnread(); notificationSocket.disconnect(); notificationSocket.connect() })
 </script>
 
 <template>

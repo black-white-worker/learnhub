@@ -8,6 +8,7 @@ import (
 	"learningplatform/internal/model"
 	"learningplatform/internal/platform/oss"
 	"learningplatform/internal/platform/quota"
+	"learningplatform/internal/platform/ws"
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/core/stores/redis"
@@ -32,10 +33,20 @@ type ServiceContext struct {
 	Quota *quota.Limiter
 	// DB 暴露底层 sqlx 连接，供轻量表（操作日志等）直接读写
 	DB sqlx.SqlConn
+	// 通知偏好数据访问层（对应 Flyway V23 的 notification_preferences 表）
+	NotificationPrefStore *model.NotificationPrefModel
+	// 实时通知 WebSocket 连接中心（单例，Run 协程常驻整个进程生命周期）
+	NotifHub *ws.Hub
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
 	conn := sqlx.NewMysql(c.Mysql.DataSource)
+
+	// 实时通知 Hub：启动唯一的所有者 goroutine，常驻整个进程生命周期。
+	// 所有连接的增删与消息广播都经 channel 串行处理（见 platform/ws）。
+	hub := ws.NewHub()
+	go hub.Run()
+
 	sc := &ServiceContext{
 		Config:      c,
 		UserStore:   model.NewUserModel(conn),
@@ -45,6 +56,9 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		UploadStore: model.NewUploadSessionModel(conn),
 		Redis:       redis.MustNewRedis(c.Redis),
 		DB:          conn,
+		// 通知偏好与实时推送
+		NotificationPrefStore: model.NewNotificationPrefModel(conn),
+		NotifHub:              hub,
 	}
 	// 上传配额：跟着 Redis 走，上限来自配置（0 表示不限制）
 	sc.Quota = quota.New(sc.Redis, c.Upload.DailyQuotaBytesPerUser)

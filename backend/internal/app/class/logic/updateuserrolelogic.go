@@ -33,13 +33,16 @@ func (l *UpdateUserRoleLogic) UpdateUserRole(req *class.UpdateUserRoleReq, cu *c
 	// 给被审批人写通知
 	if uid, err := l.svcCtx.UserStore.GetIdByUsername(req.Username); err == nil && uid > 0 {
 		roleText := map[string]string{"admin": "管理员", "teacher": "老师", "student": "学生"}[req.Role]
-		_, _ = l.svcCtx.ClassStore.InsertNotification(&model.NotificationRow{
+		if _, nerr := l.svcCtx.ClassStore.InsertNotification(&model.NotificationRow{
 			UserId:  uid,
 			Type:    "approval",
 			Title:   "老师申请审批结果",
 			Content: "你的老师申请已" + map[bool]string{true: "", false: "被"}[req.Role == "teacher"] + "处理，当前角色：" + roleText,
 			LinkUrl: "/profile",
-		})
+		}); nerr == nil {
+			// 实时推送：把"有新的审批结果"秒级推到铃铛（非阻塞，HTTP 立即返回）
+			go l.svcCtx.NotifHub.Push(uid, []byte(`{"type":"unread","value":1}`))
+		}
 	}
 	return nil
 }
