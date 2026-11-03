@@ -6,6 +6,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"net/http"
 
 	"learningplatform/internal/app/course"
 	"learningplatform/internal/config"
@@ -34,6 +35,31 @@ func main() {
 
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)
+
+	// AI 服务反向代理：/api/ai/* 转发到 Python FastAPI 服务
+	// docker 内网用服务名 ai-service:8000；本地开发用 127.0.0.1:8000
+	aiBackend := "http://ai-service:8000"
+	if c.Mode == "dev" {
+		aiBackend = "http://127.0.0.1:8000"
+	}
+	aiProxy := handler.NewAIProxy(aiBackend)
+	for _, p := range handler.AIProxyPaths {
+		server.AddRoute(rest.Route{
+			Method:  http.MethodPost,
+			Path:    p,
+			Handler: aiProxy,
+		})
+		server.AddRoute(rest.Route{
+			Method:  http.MethodGet,
+			Path:    p,
+			Handler: aiProxy,
+		})
+		server.AddRoute(rest.Route{
+			Method:  http.MethodDelete,
+			Path:    p,
+			Handler: aiProxy,
+		})
+	}
 
 	// 启动孤儿对象后台清理（每 10 分钟扫描一次 MinIO，
 	// 删除"上传成功但课程未引用"的残留封面/视频，网络波动兜底）
