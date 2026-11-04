@@ -42,7 +42,7 @@ func main() {
 	if c.Mode == "dev" {
 		aiBackend = "http://127.0.0.1:8000"
 	}
-	aiProxy := handler.NewAIProxy(aiBackend)
+	aiProxy := handler.NewAIProxy(aiBackend, ctx)
 	for _, p := range handler.AIProxyPaths {
 		server.AddRoute(rest.Route{
 			Method:  http.MethodPost,
