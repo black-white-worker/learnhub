@@ -1,13 +1,14 @@
-"""向量库抽象层：当前用 Chroma，将来换 Milvus 只改这一个文件。
+"""向量库抽象层：当前用 Chroma。
 
-接口约定：
-- upsert(course_id, chunks: list[str], metadatas: list[dict])
-- query(course_id, embedding: list[float], top_k=3) -> list[(text, metadata, score)]
+关键修复：写入时显式传 embeddings（用 DashScope text-embedding-v3），
+和查询时用同一个模型，避免维度不匹配。
 """
 from __future__ import annotations
 import os
+import hashlib
 from typing import List, Dict, Any
 from app.core.config import settings
+from app.rag.embedding import embed_batch
 
 
 class VectorStore:
@@ -25,14 +26,35 @@ class ChromaStore(VectorStore):
         self._client = chromadb.PersistentClient(path=settings.vector_db_dir)
 
     def _coll(self, course_id: int):
-        # 每个课程一个 collection，物理隔离 A/B 课程资料
-        name = f"course_{course_id}"
-        return self._client.get_or_create_collection(name=name, metadata={"hnsw:space": "cosine"})
+        # collection 名加 _v1 版本号，改 embedding 模型时改版本号即可
+        name = f"course_{course_id}_v1"
+        return self._client.get_or_create_collection(
+            name=name,
+            metadata={"hnsw:space": "cosine"}
+        )
 
     def upsert(self, course_id: int, chunks: List[str], metadatas: List[Dict[str, Any]]):
+        """写入时先 embed，再显式传 embeddings，和查询走同一模型。"""
+        if not chunks:
+            return
         coll = self._coll(course_id)
-        ids = [f"c{abs(hash((course_id, i))) % (10**16)}" for i in range(len(chunks))]
-        coll.upsert(ids=ids, documents=chunks, metadatas=metadatas)
+        embeddings = embed_batch(chunks)
+        # 内容哈希做 ID，幂等：同一内容重复写不产生重复切片
+        ids = [
+            hashlib.md5(f"{course_id}:{ch}".encode()).hexdigest()[:16]
+            for ch in chunks
+        ]
+        coll.upsert(
+            ids=ids,
+            documents=chunks,
+            metadatas=metadatas,
+            embeddings=embeddings,
+        )
+
+    def delete_by_resource(self, course_id: int, resource_id: int):
+        """按资源 ID 删除所有切片（资源更新时先删后写）。"""
+        coll = self._coll(course_id)
+        coll.delete(where={"resource_id": resource_id})
 
     def query(self, course_id: int, embedding: List[float], top_k: int = 3):
         coll = self._coll(course_id)
@@ -46,5 +68,4 @@ class ChromaStore(VectorStore):
 
 
 def get_vector_store() -> VectorStore:
-    # 工厂：将来 settings.vector_db_type == "milvus" 时返回 MilvusStore
     return ChromaStore()
