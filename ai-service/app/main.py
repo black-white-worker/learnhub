@@ -11,9 +11,14 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.chat import router as chat_router
+<<<<<<< HEAD
 from app.api.summary import router as summary_router
 from app.api.generate import router as generate_router
 from app.api.session import router as session_router
+=======
+from app.api.session import router as session_router
+from app.tasks.grade_worker import consume_loop
+>>>>>>> 会话管理
 from app.core.config import settings
 
 # 内部调用令牌：和 Go 代理侧的 internalToken 保持一致
@@ -56,8 +61,11 @@ app.middleware("http")(internal_token_middleware)
 
 # 注册所有路由
 app.include_router(chat_router)
+<<<<<<< HEAD
 app.include_router(summary_router)
 app.include_router(generate_router)
+=======
+>>>>>>> 会话管理
 app.include_router(session_router)
 
 
