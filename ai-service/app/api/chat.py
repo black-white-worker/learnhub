@@ -1,9 +1,8 @@
 """HTTP API：
 - POST /api/ai/chat          SSE 流式答疑
-- POST /api/ai/generate      AI 出题（老师用，返回题目给老师审核）
-学习总结在 summary.py，会话管理在 session.py。
+其他接口：summary.py（学习总结）、generate.py（AI出题）、session.py（会话管理）。
 """
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
@@ -18,7 +17,6 @@ router = APIRouter(prefix="/api/ai", tags=["ai"])
 _r = redis.from_url(settings.redis_url, decode_responses=True)
 
 
-# 简单鉴权：从 Authorization 头解析 user_id（Go 网关已经验过 JWT，这里信任 header）
 def get_user_id(req: Request) -> int:
     uid = req.headers.get("X-User-Id")
     if not uid:
@@ -29,13 +27,13 @@ def get_user_id(req: Request) -> int:
 class ChatReq(BaseModel):
     query: str
     course_id: int
-    session_id: Optional[str] = None  # 预留，Demo 用 user_id+course_id 做 key
+    session_id: Optional[str] = None
 
 
 @router.post("/chat")
 async def chat(body: ChatReq, req: Request):
+    """SSE 流式答疑。"""
     user_id = get_user_id(req)
-    # 限流：每天每用户 N 次
     key = f"ai:limit:u{user_id}:{__import__('datetime').date.today()}"
     cnt = _r.incr(key)
     if cnt == 1:
@@ -48,9 +46,7 @@ async def chat(body: ChatReq, req: Request):
     async def event_stream():
         answer_parts = []
         try:
-            gen = stream_answer(state)
-            async for chunk in gen:
-                # 从 chunk 里提取 delta 拼接完整答案
+            async for chunk in stream_answer(state):
                 if chunk.startswith("data: ") and '"delta"' in chunk:
                     try:
                         d = json.loads(chunk[6:])
@@ -62,7 +58,6 @@ async def chat(body: ChatReq, req: Request):
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
         finally:
-            # 写完历史
             if answer_parts:
                 append_turn(user_id, body.course_id, body.query, "".join(answer_parts))
 
