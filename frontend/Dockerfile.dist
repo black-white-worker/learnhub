@@ -1,0 +1,10 @@
+# 产物模式：前端静态文件由本机 npm run build 生成。
+# 服务器不装 node、不跑 vite、不装依赖，构建只是 COPY 几 MB 的 dist。
+FROM nginx:1.27-alpine
+
+# 兜底配置：compose 运行时会挂载 deploy/server/nginx/lp.conf 覆盖它
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+RUN rm -rf /usr/share/nginx/html/*
+COPY dist/ /usr/share/nginx/html/
+
+EXPOSE 80

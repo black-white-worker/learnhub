@@ -119,17 +119,35 @@ try {
 } catch { }
 
 if (-not $dockerOk) {
-    Write-Log "Docker 引擎未运行，正在启动 Docker Desktop ..." -Level Warn
+    # Docker CLI 已安装但 Engine 不可达时，先尝试找到并启动 Desktop。
+    # 安装器/用户可自定义安装目录，除常见路径外也用 docker.exe 的实际位置反推。
+    Write-Log "Docker Engine 当前不可连接，尝试启动或唤醒 Docker Desktop ..." -Level Warn
+    $dockerExe = (Get-Command docker -ErrorAction SilentlyContinue | Select-Object -First 1).Source
     $dockerDesktop = @(
         "$env:ProgramFiles\Docker\Docker\Docker Desktop.exe",
         "$env:LOCALAPPDATA\Programs\DockerDesktop\Docker Desktop.exe",
-        "$env:LOCALAPPDATA\Docker\Docker Desktop.exe"
+        "$env:LOCALAPPDATA\Docker\Docker Desktop.exe",
+        "$env:ProgramFiles\DockerDesktop\Docker Desktop.exe",
+        "$env:ProgramFiles\Docker\Docker Desktop.exe"
     ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if (-not $dockerDesktop -and $dockerExe) {
+        $dockerBin = Split-Path -Parent $dockerExe
+        $desktopCandidate = Join-Path (Split-Path -Parent $dockerBin) "Docker Desktop.exe"
+        if (Test-Path -LiteralPath $desktopCandidate) { $dockerDesktop = $desktopCandidate }
+        # 常见安装：resources\bin\docker.exe，Desktop.exe 位于安装根目录。
+        if (-not $dockerDesktop) {
+            $installRoot = Split-Path -Parent (Split-Path -Parent $dockerBin)
+            $desktopCandidate = Join-Path $installRoot "Docker Desktop.exe"
+            if (Test-Path -LiteralPath $desktopCandidate) { $dockerDesktop = $desktopCandidate }
+        }
+    }
     if (-not $dockerDesktop) {
-        Write-Log "找不到 Docker Desktop，请先安装并启动 Docker，再运行本脚本" -Level Error
+        Write-Log "Docker CLI 已找到但 Engine 无法连接，且未找到 Docker Desktop.exe。请确认 Desktop 已启动并处于 Linux containers 模式。" -Level Error
         exit 1
     }
-    Start-Process -FilePath $dockerDesktop
+    # Desktop 已开着时再次启动是幂等唤醒；若进程存在则不重复拉起窗口。
+    $desktopRunning = Get-Process -Name "Docker Desktop" -ErrorAction SilentlyContinue
+    if (-not $desktopRunning) { Start-Process -FilePath $dockerDesktop }
 
     Write-Log "等待 Docker 引擎就绪（最多 120 秒，Ctrl+C 退出）..." -Level Warn
     $ready = $false
@@ -187,7 +205,15 @@ function Get-SourceHash {
         }
     })
     $digest = $digestLines -join "`n"
-    return (Get-FileHash -InputStream ([IO.MemoryStream]::new([Text.Encoding]::UTF8.GetBytes($digest))) -Algorithm SHA256).Hash
+    # Windows PowerShell 5.1 的 Get-FileHash 不支持 -InputStream；用 .NET SHA256
+    # 对 UTF-8 字节计算，兼容 Windows PowerShell 5.1 与 PowerShell 7。
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [Text.Encoding]::UTF8.GetBytes($digest)
+        return ([BitConverter]::ToString($sha256.ComputeHash($bytes))).Replace("-", "")
+    } finally {
+        $sha256.Dispose()
+    }
 }
 
 # 判断是否需要构建：-ForceBuild 强制；否则对比上次构建记录的源码指纹

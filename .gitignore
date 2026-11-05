@@ -26,6 +26,8 @@ __debug_bin*
 *.test
 *.out
 learningplatform-api
+# 产物模式的本机编译输出（scripts/deploy.ps1 生成并上传）
+backend/bin/
 
 # ===== 日志与临时文件 =====
 *.log

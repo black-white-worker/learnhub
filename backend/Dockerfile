@@ -20,21 +20,40 @@ COPY . .
 RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 GOOS=linux go build -trimpath -o learningplatform-api ./cmd/api
 
 # 阶段二：只保留可执行文件和配置，镜像更小
-# ffmpeg 静态二进制：直接从静态镜像 COPY 进来（Linux ELF，单文件），
-# 避免在 alpine 里 apk add ffmpeg 时解包 113 个编解码依赖包，build 更快。
-FROM mwader/static-ffmpeg:6.1 AS ffmpeg
-
 FROM alpine:3.21
-# 装时区、根证书、LibreOffice（docx/pptx 转 PDF 预览）、中文字体（否则转出的 PDF 中文是方框）
-RUN apk add --no-cache tzdata ca-certificates \
-    libreoffice-writer libreoffice-impress \
-    font-noto-cjk \
+# 装时区、根证书、ffmpeg（视频 faststart 转码）、LibreOffice（docx/pptx 转 PDF 预览）、
+# 中文字体（否则转出的 PDF 中文是方框）。
+# ffmpeg 用 apk 装，不再依赖 mwader/static-ffmpeg 镜像：那个镜像要走 Docker Hub 拉 76MB，
+# 国内服务器经常卡在 0B；apk 走阿里云镜像，稳定；ffprobe 也包含在 ffmpeg 包里。
+# 分三层装：某一层失败后重跑，前面的层直接复用；apk 包缓存也挂在持久盘。
+
+# 1) 基础工具 + ffmpeg
+RUN --mount=type=cache,target=/var/cache/apk \
+    sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories \
+    && (grep -q '/community' /etc/apk/repositories \
+    || echo 'https://mirrors.aliyun.com/alpine/v3.21/community' >> /etc/apk/repositories) \
+    && apk add --cache-dir=/var/cache/apk tzdata ca-certificates ffmpeg \
     && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+
+# 2) LibreOffice：包最多、解包最慢，单独一层。
+#    --no-scripts 跳过 apk triggers（2C2G 上 gtk-update-icon-cache / gdk-pixbuf 等
+#    trigger 容易以 "1 error; N MiB in M packages" 失败），再手动补运行所需的缓存。
+RUN --mount=type=cache,target=/var/cache/apk \
+    apk add --no-scripts --cache-dir=/var/cache/apk \
+    libreoffice-writer libreoffice-impress \
+    hicolor-icon-theme \
+    && (gdk-pixbuf-query-loaders --update-cache || true) \
+    && (update-mime-database /usr/share/mime || true) \
+    && (glib-compile-schemas /usr/share/glib-2.0/schemas || true) \
+    && (gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true)
+
+# 3) 中文字体：文泉驿比 font-noto-cjk 小得多、装得快（Noto 下载 70MB、解包几百 MB）；
+#    同样跳过 trigger，手动跑 fc-cache 生成字体缓存
+RUN --mount=type=cache,target=/var/cache/apk \
+    apk add --no-scripts --cache-dir=/var/cache/apk fontconfig font-wqy-zenhei \
+    && (fc-cache -f || true)
 WORKDIR /app
 COPY --from=builder /build/learningplatform-api .
 COPY --from=builder /build/etc/learningplatform-api.yaml ./etc/learningplatform-api.yaml
-# 静态 ffmpeg / ffprobe，放进 PATH 即可被 Go 代码 exec.Command("ffmpeg", ...) 调用
-COPY --from=ffmpeg /ffmpeg /usr/local/bin/ffmpeg
-COPY --from=ffmpeg /ffprobe /usr/local/bin/ffprobe
 EXPOSE 8888
 CMD ["./learningplatform-api", "-f", "etc/learningplatform-api.yaml"]

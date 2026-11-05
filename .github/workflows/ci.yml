@@ -136,3 +136,6 @@ jobs:
         run: |
           cp .env.example .env
           docker compose config -q
+
+      - name: 校验产物模式覆盖层（本机构建产物 → 服务器只 COPY）
+        run: docker compose -f docker-compose.server.yml -f docker-compose.artifact.yml config -q

@@ -41,7 +41,7 @@ services:
 
   # ===== MinIO 对象存储（课程封面 / 缩略图 / 视频）=====
   minio:
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    image: registry.cn-qingdao.aliyuncs.com/xuxiaoweicomcn/minio:RELEASE.2025-03-12T18-04-18Z
     container_name: learningplatform-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -57,7 +57,8 @@ services:
 
   # MinIO 初始化：建桶 + 按 MINIO_PRIVATE 决定 course/ 前缀是公开读还是私有
   minio-init:
-    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    # 服务镜像内自带 mc，复用青岛阿里云仓库的 MinIO 镜像，避开 Docker Hub 镜像代理 403。
+    image: registry.cn-qingdao.aliyuncs.com/xuxiaoweicomcn/minio:RELEASE.2025-03-12T18-04-18Z
     restart: "no"
     depends_on:
       minio:

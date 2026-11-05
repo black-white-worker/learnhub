@@ -1,0 +1,23 @@
+# =====================================================================
+# 产物模式覆盖层：与 docker-compose.server.yml 叠加使用。
+#   docker compose -f docker-compose.server.yml -f docker-compose.artifact.yml --env-file .env.prod ...
+#
+# 服务器上不再编译源码，只把 scripts/deploy.ps1 上传的产物 COPY 进镜像：
+#   backend/bin/learningplatform-api   本机 go build 的 Linux 二进制
+#   frontend/dist                      本机 npm run build 的静态文件
+#
+# 不叠加本文件时仍走源码模式（backend/Dockerfile、frontend/Dockerfile），
+# 即 deploy/server/deploy.sh app lp 的行为保持不变。
+# =====================================================================
+services:
+  lp-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.bin
+      args:
+        BACKEND_RUNTIME_IMAGE: ${BACKEND_RUNTIME_IMAGE:-learningplatform-backend-base:v2}
+
+  lp-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dist

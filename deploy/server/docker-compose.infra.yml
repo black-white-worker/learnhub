@@ -1,0 +1,159 @@
+# =====================================================================
+# 共享中间件（2C2G 服务器上只跑这一份）
+#   MySQL   -> learningplatform + videonest 两个库
+#   PG      -> heart_pilot（pgvector）
+#   Redis   -> 三个项目用不同 database 隔离：0=learningplatform 1=videonest 2=heart-pilot
+#   MinIO   -> 三个项目共用一个实例、三个桶
+# 只暴露 MinIO 的 9010 到公网（预签名 URL 需要浏览器直连），其余端口只绑 127.0.0.1，靠 SSH 隧道管理。
+# 启动：docker compose -f docker-compose.infra.yml --env-file .env up -d
+# =====================================================================
+name: lp-infra
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: infra-mysql
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --performance-schema=OFF
+      - --innodb-buffer-pool-size=96M
+      - --max-connections=120
+      - --skip-name-resolve
+      - --default-time-zone=+08:00
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: learningplatform
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init/mysql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    mem_limit: 288m
+    memswap_limit: 768m
+    networks: [shared]
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: infra-postgres
+    restart: unless-stopped
+    command:
+      - postgres
+      - -c
+      - shared_buffers=64MB
+      - -c
+      - max_connections=40
+      - -c
+      - work_mem=2MB
+    environment:
+      POSTGRES_DB: heart_pilot
+      POSTGRES_USER: ${PG_USER}
+      POSTGRES_PASSWORD: ${PG_PASSWORD}
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER} -d heart_pilot"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    mem_limit: 128m
+    memswap_limit: 512m
+    networks: [shared]
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: infra-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${REDIS_PASSWORD}
+      - --maxmemory
+      - 48mb
+      - --maxmemory-policy
+      - allkeys-lru
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    mem_limit: 96m
+    memswap_limit: 256m
+    networks: [shared]
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: infra-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_API_CORS_ALLOW_ORIGIN: "*"
+      TZ: Asia/Shanghai
+    ports:
+      - "9010:9000"                 # 公网：预签名上传/播放必须能直连
+      - "127.0.0.1:9011:9001"       # 控制台只给 SSH 隧道
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    mem_limit: 192m
+    memswap_limit: 512m
+    networks: [shared]
+
+  # 只负责建桶/设策略，跑完即退出
+  minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    container_name: infra-minio-init
+    restart: "no"
+    depends_on:
+      minio:
+        condition: service_started
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >
+        until mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}";
+        do sleep 2; done &&
+        mc mb --ignore-existing local/learningplatform &&
+        mc mb --ignore-existing local/heart-pilot &&
+        mc mb --ignore-existing local/videonest &&
+        mc anonymous set download local/videonest/processed || true;
+        mc anonymous set download local/videonest/cover/processed || true;
+        mc ilm rule add --prefix "staging/" --expire-days 1 local/videonest || true;
+        echo "minio buckets ready"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    networks: [shared]
+
+volumes:
+  mysql_data:
+  pg_data:
+  redis_data:
+  minio_data:
+
+networks:
+  shared:
+    name: lp-shared
+    driver: bridge

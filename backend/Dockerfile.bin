@@ -1,0 +1,18 @@
+# 产物模式：只把本机编译好的 Linux 二进制塞进运行镜像。
+# 服务器不再装 Go、不再编译、不再下模块，构建 ≈ 复制一个 20MB 左右的文件。
+#
+# 运行镜像由 Dockerfile.base 预先生成（learningplatform-backend-base:v2，
+# 含 LibreOffice / 中文字体 / ffmpeg），redeploy.sh 首次会自动构建；也可以手动：
+#   docker build -f backend/Dockerfile.base -t learningplatform-backend-base:v2 backend
+ARG BACKEND_RUNTIME_IMAGE=learningplatform-backend-base:v2
+FROM ${BACKEND_RUNTIME_IMAGE}
+
+WORKDIR /app
+
+# 构建上下文由 Dockerfile.bin.dockerignore 压到只剩 bin/ 与 etc/
+COPY bin/learningplatform-api ./learningplatform-api
+COPY etc/learningplatform-api.yaml ./etc/learningplatform-api.yaml
+RUN chmod +x ./learningplatform-api
+
+EXPOSE 8888
+CMD ["./learningplatform-api", "-f", "etc/learningplatform-api.yaml"]

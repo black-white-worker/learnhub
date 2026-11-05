@@ -1,0 +1,52 @@
+# 后端运行基础镜像（产物模式用）：只装运行时依赖，不含任何应用代码。
+#
+# 里面的东西都很"重"且几乎不变：时区、根证书、ffmpeg、LibreOffice（docx/pptx 转 PDF）、
+# 中文字体（否则转出的 PDF 中文是方框）。
+# 服务器上只需要构建一次，deploy/server/redeploy.sh 会在镜像缺失时自动构建：
+#   docker build -f backend/Dockerfile.base -t learningplatform-backend-base:v2 backend
+#
+# 改了本文件（加包、换字体、改版本）就把 tag 升一版（v2 → v3），否则服务器上已存在的
+# v2 镜像会被直接复用，改动不会生效。
+#
+# 注意：ffmpeg 用 apk 装（和 videonest 一样），不要再用 mwader/static-ffmpeg 镜像——
+# 那个镜像要从 Docker Hub 拉 76MB，国内服务器经常卡在 0B 不动；
+# apk 走阿里云镜像，稳定得多。ffprobe 包含在 ffmpeg 包里。
+FROM alpine:3.21
+
+# 分三层装：基础工具/ffmpeg、LibreOffice、字体各自独立成层。
+# 某一层失败后重跑，前面的层直接复用，不用从头再来（2C2G 上很关键）。
+# --mount=type=cache：apk 包缓存挂在持久盘，重跑也不会重新下载已下好的包。
+
+# 1) 基础工具 + ffmpeg（视频 faststart 转码；ffprobe 也在包里）
+RUN --mount=type=cache,target=/var/cache/apk \
+    sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories \
+    && (grep -q '/community' /etc/apk/repositories \
+    || echo 'https://mirrors.aliyun.com/alpine/v3.21/community' >> /etc/apk/repositories) \
+    && apk add --cache-dir=/var/cache/apk tzdata ca-certificates ffmpeg \
+    && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+
+# 2) LibreOffice（docx/pptx 转 PDF 预览）：包最多、解包最慢，单独一层。
+#    这里用 --no-scripts 跳过 apk 的 post-install triggers：在 2C2G 上，收尾的
+#    gtk-update-icon-cache / gdk-pixbuf / fontconfig 等 trigger 很容易失败（典型报错
+#    "1 error; 922 MiB in 301 packages"），但包其实已经装好了。跳过之后在下面
+#    手动把真正影响运行的两个缓存（gdk-pixbuf loaders、fontconfig）补齐。
+#    hicolor-icon-theme 一起装，保证图标目录有 index.theme（手动跑图标缓存时也安全）。
+RUN --mount=type=cache,target=/var/cache/apk \
+    apk add --no-scripts --cache-dir=/var/cache/apk \
+    libreoffice-writer libreoffice-impress \
+    hicolor-icon-theme \
+    && (gdk-pixbuf-query-loaders --update-cache || true) \
+    && (update-mime-database /usr/share/mime || true) \
+    && (glib-compile-schemas /usr/share/glib-2.0/schemas || true) \
+    && (gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true)
+
+# 3) 中文字体：用文泉驿（font-wqy-zenhei，约 20MB），比 font-noto-cjk
+#    （下载 70MB、解包几百 MB，还容易在 2C2G 上卡很久）快得多，PDF 中文显示足够。
+#    同样 --no-scripts 跳过 fontconfig trigger，改为手动执行一次 fc-cache 生成缓存。
+#    想要 Noto 观感，把这里换成 font-noto-cjk（并把 tag 升一版）。
+RUN --mount=type=cache,target=/var/cache/apk \
+    apk add --no-scripts --cache-dir=/var/cache/apk fontconfig font-wqy-zenhei \
+    && (fc-cache -f || true)
+
+WORKDIR /app
+EXPOSE 8888
