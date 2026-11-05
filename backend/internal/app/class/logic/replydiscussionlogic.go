@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"learningplatform/internal/model"
 	"learningplatform/internal/app/class"
+	"learningplatform/internal/model"
 	"learningplatform/internal/svc"
 )
 

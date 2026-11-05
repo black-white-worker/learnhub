@@ -35,6 +35,8 @@ func (l *DeleteCourseLogic) Delete(req *course.DeleteCourseRequest) (resp *cours
 	if err := course.Store.DeleteCourse(req.Id); err != nil {
 		return nil, err
 	}
+	// 列表缓存失效，避免删掉的课还在首页挂 60 秒
+	course.InvalidateListCache(l.svcCtx.Redis)
 
 	return &course.DeleteCourseResponse{Id: req.Id}, nil
 }

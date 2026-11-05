@@ -24,6 +24,12 @@ export default defineConfig({
         target: 'http://localhost:8888',
         changeOrigin: true,
       },
+      // 实时通知 WebSocket：必须开启 ws:true，否则 vite 不会升级为长连接
+      '/ws': {
+        target: 'ws://localhost:8888',
+        changeOrigin: true,
+        ws: true,
+      },
     },
   },
 })

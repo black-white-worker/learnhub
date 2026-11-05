@@ -5,6 +5,7 @@ import (
 
 	"learningplatform/internal/app/user"
 	"learningplatform/internal/app/user/logic"
+	"learningplatform/internal/platform/response"
 	"learningplatform/internal/svc"
 
 	"github.com/zeromicro/go-zero/rest/httpx"
@@ -21,7 +22,7 @@ func LogoutHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		l := logic.NewLogoutLogic(r.Context(), svcCtx)
 		resp, err := l.Logout(token)
 		if err != nil {
-			httpx.ErrorCtx(r.Context(), w, err)
+			response.WriteError(w, err)
 		} else {
 			httpx.OkJsonCtx(r.Context(), w, resp)
 		}

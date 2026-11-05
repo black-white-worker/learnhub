@@ -6,39 +6,30 @@ import (
 	"learningplatform/internal/app/course"
 	"learningplatform/internal/app/course/logic"
 	"learningplatform/internal/app/user"
+	"learningplatform/internal/domain/authz"
 	"learningplatform/internal/svc"
-
-	"github.com/zeromicro/go-zero/rest/httpx"
 )
 
-// CreateHandler 课程创建接口的 HTTP 处理器：
-// 只有老师和管理员能创建课程（问题2：鉴权已生效）
-// 创建者直接从登录态取，不依赖前端传参（防伪造）。
+// CreateHandler 课程创建接口：只有老师/管理员能创建（能力矩阵统一在 authz 包）。
+// 创建者从登录态取，不信任前端传参，防止伪造"我是别人"。
 func CreateHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		u := user.CurrentUser(r)
-		if u == nil || (u.Role != "teacher" && u.Role != "admin") {
-			httpx.WriteJson(w, 403, map[string]string{"message": "只有老师或管理员才能创建课程"})
+		if !requireCapability(w, r, authz.CourseCreate) {
 			return
 		}
+		u := user.CurrentUser(r)
 
 		var req course.CreateRequest
-		if err := httpx.Parse(r, &req); err != nil {
-			// createdBy 由后端注入，前端不传也不报错
-			req = course.CreateRequest{
-				Name:    req.Name,
-				Intro:   req.Intro,
-				Teacher: req.Teacher,
-			}
-		}
+		// 前端字段可能缺失（createdBy 由后端注入），解析失败也继续用零值
+		_ = parseJSONBody(r, &req)
 		req.CreatedBy = u.Username
 
 		l := logic.NewCreateLogic(r.Context(), svcCtx)
 		resp, err := l.Create(&req)
 		if err != nil {
-			httpx.ErrorCtx(r.Context(), w, err)
-		} else {
-			httpx.OkJsonCtx(r.Context(), w, resp)
+			courseError(r, w, err)
+			return
 		}
+		courseOK(r, w, resp)
 	}
 }

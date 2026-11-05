@@ -18,8 +18,8 @@ func TestCheckImageMagic(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := checkImageMagic(tc.data); got != tc.want {
-				t.Fatalf("checkImageMagic(%s) = %v, want %v", tc.name, got, tc.want)
+			if got := CheckImageMagic(tc.data); got != tc.want {
+				t.Fatalf("CheckImageMagic(%s) = %v, want %v", tc.name, got, tc.want)
 			}
 		})
 	}
@@ -40,8 +40,8 @@ func TestCheckVideoMagic(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := checkVideoMagic(tc.data); got != tc.want {
-				t.Fatalf("checkVideoMagic(%s) = %v, want %v", tc.name, got, tc.want)
+			if got := CheckVideoMagic(tc.data); got != tc.want {
+				t.Fatalf("CheckVideoMagic(%s) = %v, want %v", tc.name, got, tc.want)
 			}
 		})
 	}
@@ -63,8 +63,8 @@ func TestContentTypeByExt(t *testing.T) {
 		{".zip", "application/octet-stream"},
 	}
 	for _, tc := range cases {
-		if got := contentTypeByExt(tc.ext); got != tc.want {
-			t.Fatalf("contentTypeByExt(%s) = %s, want %s", tc.ext, got, tc.want)
+		if got := ContentTypeByExt(tc.ext); got != tc.want {
+			t.Fatalf("ContentTypeByExt(%s) = %s, want %s", tc.ext, got, tc.want)
 		}
 	}
 }

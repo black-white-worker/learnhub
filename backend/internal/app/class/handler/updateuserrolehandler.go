@@ -5,6 +5,7 @@ import (
 
 	"learningplatform/internal/app/class"
 	"learningplatform/internal/app/class/logic"
+	"learningplatform/internal/app/user"
 	"learningplatform/internal/svc"
 
 	"github.com/zeromicro/go-zero/rest/httpx"
@@ -26,6 +27,8 @@ func updateUserRoleHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			class.WriteBizError(w, err)
 			return
 		}
+		// 角色已变更：立即让该用户的角色缓存失效，避免还要等 60 秒才生效
+		user.InvalidateRoleCache(svcCtx.Redis, req.Username)
 		httpx.WriteJson(w, http.StatusOK, map[string]string{"message": "ok"})
 	}
 }

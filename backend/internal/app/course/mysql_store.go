@@ -24,14 +24,14 @@ func InitCourseStore(db *model.CourseModel) {
 // 把 VideoRow 转成 course.Video（含私有字段，同包可访问）。
 func videoFromRow(r *model.VideoRow) *Video {
 	return &Video{
-		Id:         int(r.Id),
-		Name:       r.Name,
-		Url:        r.Url,
-		Size:       r.Size,
-		UploadedAt: r.UploadedAt.Format(time.RFC3339),
+		Id:          int(r.Id),
+		Name:        r.Name,
+		Url:         r.Url,
+		Size:        r.Size,
+		UploadedAt:  r.UploadedAt.Format(time.RFC3339),
 		Faststarted: r.Faststarted,
-		CourseId:   int(r.CourseId),
-		ObjectName: r.ObjectName,
+		CourseId:    int(r.CourseId),
+		ObjectName:  r.ObjectName,
 	}
 }
 

@@ -35,6 +35,7 @@ type MinioConf struct {
 	SecretKey      string // 密钥
 	UseSSL         bool   // 是否使用 HTTPS 访问 MinIO
 	Bucket         string // 默认桶名（不存在会自动创建）
+	Private        bool   // 是否私有桶：开启后读接口返回预签名 URL，不再依赖匿名读
 }
 
 // UploadConf 上传大小限制（字节）。
@@ -42,4 +43,7 @@ type MinioConf struct {
 type UploadConf struct {
 	MaxCoverBytes int64 // 封面原图大小上限（默认 5MB）
 	MaxVideoBytes int64 // 单个视频大小上限（默认 500MB）
+	// DailyQuotaBytesPerUser 每个用户每日上传总量上限（字节），0 = 不限制。
+	// 防的是"账号被盗后把对象存储灌满"：按用户 + 自然日计数（Redis，48h TTL）。
+	DailyQuotaBytesPerUser int64
 }

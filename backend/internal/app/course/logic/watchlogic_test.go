@@ -2,43 +2,22 @@ package logic
 
 import (
 	"context"
-	"strings"
 	"testing"
+
+	"learningplatform/internal/app/course"
 )
 
-// 「课程观看」分支测试：
-// 1. ffmpeg 命令参数拼装（纯函数，不依赖真实 ffmpeg）
-// 2. 播放接口取视频
-// 3. 进度读取 / 保存（测试 svcCtx 不带 Redis，走降级分支）
-
-// ffmpeg 参数必须含 +faststart（moov 前置，边下边播 / 可拖动）
-func TestBuildFaststartArgs_ContainsFaststart(t *testing.T) {
-	args := buildFaststartArgs("in.mp4", "out.mp4")
-	found := false
-	for i, a := range args {
-		if a == "-movflags" && i+1 < len(args) && args[i+1] == "+faststart" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("参数里缺少 -movflags +faststart: %v", args)
-	}
-}
-
-// 编码参数统一 H.264 / AAC，保证浏览器都能播
-func TestBuildFaststartArgs_CommonCodecs(t *testing.T) {
-	args := buildFaststartArgs("in.mp4", "out.mp4")
-	joined := strings.Join(args, " ")
-	for _, want := range []string{"libx264", "yuv420p", "aac"} {
-		if !strings.Contains(joined, want) {
-			t.Fatalf("参数里缺少 %s: %v", want, args)
-		}
-	}
-}
+// 「课程观看」分支测试：播放接口取视频 + 进度读写的降级行为。
+//
+// 说明：ffmpeg 参数拼装（buildFaststartArgs）是 course 包内的私有函数，
+// 本包是 logic，跨包访问不到，相关用例已移到 course/ffmpeg_args_test.go。
 
 // 播放：先造一门课 + 一个视频，再取
 func TestVideoPlay_Success(t *testing.T) {
-	c, _ := course.Store.AddCourse("观看测试课", "", "", "tester")
+	c, err := course.Store.AddCourse("观看测试课", "", "", "tester")
+	if err != nil {
+		t.Fatalf("准备课程失败: %v", err)
+	}
 	_ = course.Store.AddVideos(c.Id, []*course.Video{{Name: "a.mp4", Url: "http://x/a.mp4", Size: 10}})
 
 	l := NewVideoPlayLogic(context.Background(), newTestSvcCtx())
@@ -46,8 +25,8 @@ func TestVideoPlay_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("期望播放成功，却报错: %v", err)
 	}
-	if resp.course.Video.Name != "a.mp4" {
-		t.Fatalf("返回视频不对: %+v", resp.course.Video)
+	if resp.Video == nil || resp.Video.Name != "a.mp4" {
+		t.Fatalf("返回视频不对: %+v", resp.Video)
 	}
 }
 
@@ -60,26 +39,40 @@ func TestVideoPlay_NotFound(t *testing.T) {
 	}
 }
 
-// 进度：无 Redis / 无记录时 Get 返回 0，不报错
-func TestProgress_GetWithoutRedis(t *testing.T) {
+// 进度：没有用户上下文 / 没有 MySQL 数据层时，Get 返回 0，不报错（降级）
+func TestProgress_GetWithoutStore(t *testing.T) {
 	l := NewVideoProgressLogic(context.Background(), newTestSvcCtx())
 	resp, err := l.Get(&course.GetProgressRequest{CourseId: 1, VideoId: 1})
 	if err != nil {
-		t.Fatalf("期望无 Redis 也能正常返回，却报错: %v", err)
+		t.Fatalf("期望降级也能正常返回，却报错: %v", err)
 	}
 	if resp.Position != 0 {
 		t.Fatalf("期望无记录返回 0，实际 %d", resp.Position)
 	}
 }
 
-// 进度：Save 在无 Redis 时不报错，原样返回位置
-func TestProgress_SaveWithoutRedis(t *testing.T) {
+// 进度：Save 在无数据层时原样返回位置（进度不能阻断观看）
+func TestProgress_SaveWithoutStore(t *testing.T) {
 	l := NewVideoProgressLogic(context.Background(), newTestSvcCtx())
 	resp, err := l.Save(&course.SaveProgressRequest{CourseId: 1, VideoId: 1, Position: 42})
 	if err != nil {
-		t.Fatalf("期望无 Redis 也能保存成功（降级），却报错: %v", err)
+		t.Fatalf("期望降级也能保存成功，却报错: %v", err)
 	}
 	if resp.Position != 42 {
 		t.Fatalf("期望返回 42，实际 %d", resp.Position)
+	}
+}
+
+// 进度：即使传了 UserId，没有 CourseStore 也不能 panic（回归保护）
+func TestProgress_SaveWithUserButNoStore(t *testing.T) {
+	l := NewVideoProgressLogic(context.Background(), newTestSvcCtx())
+	resp, err := l.Save(&course.SaveProgressRequest{
+		CourseId: 1, VideoId: 1, Position: 10, UserId: 7, WatchedDelta: 10, Duration: 100,
+	})
+	if err != nil {
+		t.Fatalf("期望不报错，实际: %v", err)
+	}
+	if resp.Position != 10 {
+		t.Fatalf("期望回显 10，实际 %d", resp.Position)
 	}
 }

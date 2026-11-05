@@ -3,6 +3,8 @@ package logic
 import (
 	"context"
 	"testing"
+
+	"learningplatform/internal/app/course"
 )
 
 // 「课程资源」分支：上传 / 列表 / 删除文档资源的单元测试。
@@ -29,8 +31,8 @@ func TestResourceUpload_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("期望上传成功，却报错: %v", err)
 	}
-	if resp.course.Resource.Name != "第一章讲义.pdf" || resp.course.Resource.Type != "pdf" {
-		t.Fatalf("返回资源元信息不对: %+v", resp.course.Resource)
+	if resp.Resource.Name != "第一章讲义.pdf" || resp.Resource.Type != "pdf" {
+		t.Fatalf("返回资源元信息不对: %+v", resp.Resource)
 	}
 
 	// 列表里应能查到
@@ -94,7 +96,7 @@ func TestResourceDelete_Success(t *testing.T) {
 	}
 
 	del := NewResourceDeleteLogic(context.Background(), newTestSvcCtx())
-	if _, err := del.Delete(&course.DeleteResourceRequest{CourseId: id, ResourceId: resp.course.Resource.Id}); err != nil {
+	if _, err := del.Delete(&course.DeleteResourceRequest{CourseId: id, ResourceId: resp.Resource.Id}); err != nil {
 		t.Fatalf("期望删除成功，却报错: %v", err)
 	}
 	left, _ := course.Store.ListResources(id)

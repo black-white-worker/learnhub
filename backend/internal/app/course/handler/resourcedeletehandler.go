@@ -5,26 +5,28 @@ import (
 
 	"learningplatform/internal/app/course"
 	"learningplatform/internal/app/course/logic"
+	"learningplatform/internal/domain/authz"
 	"learningplatform/internal/svc"
-
-	"github.com/zeromicro/go-zero/rest/httpx"
 )
 
 // ResourceDeleteHandler 课程资源删除接口：DELETE /api/course/resource/:courseId/:resourceId
+// 只有课程创建者/管理员可以删。
 func ResourceDeleteHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req course.DeleteResourceRequest
-		if err := httpx.Parse(r, &req); err != nil {
-			httpx.ErrorCtx(r.Context(), w, err)
+		req.CourseId = parseIntVar(r, "courseId")
+		req.ResourceId = parseIntVar(r, "resourceId")
+
+		if !authorizeCourse(w, r, req.CourseId, authz.CourseResourceDelete) {
 			return
 		}
 
 		l := logic.NewResourceDeleteLogic(r.Context(), svcCtx)
 		resp, err := l.Delete(&req)
 		if err != nil {
-			httpx.ErrorCtx(r.Context(), w, err)
-		} else {
-			httpx.OkJsonCtx(r.Context(), w, resp)
+			courseError(r, w, err)
+			return
 		}
+		courseOK(r, w, resp)
 	}
 }

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"learningplatform/internal/app/user"
 )
 
 // 测试用例 1：注册一个全新用户 → 成功，返回用户名
@@ -50,7 +52,10 @@ func TestRegisterLogic_EmptyParam(t *testing.T) {
 // Redis INCR 计数窗口为 60 秒，测试用独立 IP 避免影响其他用例。
 func TestRegisterLogic_RateLimit(t *testing.T) {
 	ctx := context.WithValue(context.Background(), user.ClientIPKey, "10.0.0.9")
-	l := NewRegisterLogic(ctx, newTestSvcCtx())
+	svcCtx := newTestSvcCtx()
+	// 清掉上一轮遗留的计数：限流窗口是 60 秒，重复跑测试时不清会"第 1 次就被拦"
+	_, _ = svcCtx.Redis.Del("register:limit:10.0.0.9")
+	l := NewRegisterLogic(ctx, svcCtx)
 
 	// 1. 前 5 次允许通过（每次注册后立刻删除，避免污染数据库）
 	for i := 0; i < registerLimitPerMinute; i++ {

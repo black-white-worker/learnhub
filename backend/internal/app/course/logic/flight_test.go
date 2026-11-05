@@ -20,11 +20,11 @@ func TestFlightGroup_ConcurrentSingleFlight(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, _ = courseListFlight.Do(key, func() ([]*course.Course, error) {
+			_, _, _ = courseListFlight.Do(key, func() ([]*course.Course, int64, error) {
 				atomic.AddInt32(&callCount, 1)
 				// 睡 10ms，确保其他 9 个 goroutine 在这期间都在等
 				time.Sleep(10 * time.Millisecond)
-				return nil, nil
+				return nil, 0, nil
 			})
 		}()
 	}
@@ -44,9 +44,9 @@ func TestFlightGroup_DifferentKeys(t *testing.T) {
 		key := "test-sep-" + time.Now().Format("150405.000000000") + string(rune('A'+i))
 		go func(k string) {
 			defer wg.Done()
-			_, _ = courseListFlight.Do(k, func() ([]*course.Course, error) {
+			_, _, _ = courseListFlight.Do(k, func() ([]*course.Course, int64, error) {
 				atomic.AddInt32(&callCount, 1)
-				return nil, nil
+				return nil, 0, nil
 			})
 		}(key)
 	}

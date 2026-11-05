@@ -41,8 +41,12 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 		{Method: http.MethodPost, Path: "/api/exam/:id/start", Handler: startExamHandler(serverCtx)},
 		// 交卷
 		{Method: http.MethodPost, Path: "/api/exam/:id/submit", Handler: submitHandler(serverCtx)},
+		// 作答草稿（考试进行中定时上报，超时收卷按最后一份草稿判分）
+		{Method: http.MethodPost, Path: "/api/exam/:id/draft", Handler: saveDraftHandler(serverCtx)},
 		// 老师手批
 		{Method: http.MethodPost, Path: "/api/exam/submission/:sid/grade", Handler: gradeHandler(serverCtx)},
+		// 考试中的切屏/违纪上报（服务端累加，老师端可见）
+		{Method: http.MethodPost, Path: "/api/exam/:id/violation", Handler: violationHandler(serverCtx)},
 	}
 	server.AddRoutes(
 		rest.WithMiddleware(user.NewAuthMiddleware(serverCtx).Handle, routes...),
@@ -153,6 +157,30 @@ func submitHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	}
 }
 
+// saveDraftHandler 保存作答草稿（考试进行中，前端定时上报）。
+func saveDraftHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cu, be := class.CurrentUser(r, svcCtx)
+		if be != nil {
+			class.WriteBizError(w, be)
+			return
+		}
+		examId := class.ParseIntPath(r, "id")
+		var req exam.SaveDraftReq
+		if err := class.ParseJSON(r, &req); err != nil {
+			class.WriteBizError(w, err)
+			return
+		}
+		resp, err := logic.NewExamLogic(r.Context(), svcCtx).SaveDraft(examId, &req, cu)
+		if err != nil {
+			class.WriteBizError(w, err)
+			return
+		}
+		httpx.WriteJson(w, http.StatusOK, resp)
+	}
+}
+
+// gradeHandler 老师手批主观题/整卷总分。
 func gradeHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cu, be := class.CurrentUser(r, svcCtx)

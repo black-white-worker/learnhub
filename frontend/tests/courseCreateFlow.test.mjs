@@ -6,6 +6,9 @@
 // 2. 选择视频点"上传视频" → 上传成功 / 上传失败
 // 3. 最后点"创建课程" → 成功（组件跳转课程列表）/ 失败（留在页面提示错误）
 
+// localStorage shim 必须在业务模块之前执行（flow 里会读 localStorage）
+import './support/dom-shim.mjs'
+
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 

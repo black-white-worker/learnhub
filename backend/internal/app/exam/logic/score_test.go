@@ -40,27 +40,55 @@ func TestScoreExam_Judge(t *testing.T) {
 }
 
 func TestScoreExam_Multiple(t *testing.T) {
+	// 正确答案 A,C 共 2 个，满分 10 分
 	questions := []*model.ExamQuestionRow{
 		q(1, "multiple", "A,C", 10),
 	}
 	cases := []struct {
 		name    string
 		pick    string
-		wantHit bool
+		wantRaw float64 // 期望原始得分（未四舍五入）
+		wantRnd int     // 期望四舍五入后总分
 	}{
-		{"顺序不同但集合相同", "C,A", true},
-		{"少选一项", "A", false},
-		{"多选一项", "A,B,C", false},
-		{"完全正确带空格", "A, C", true},
+		{"顺序不同但集合相同", "C,A", 10, 10},
+		{"少选一项 A", "A", 5, 5},       // 1/2 × 10 = 5
+		{"错选 B（多选）", "A,B,C", 0, 0}, // 选了 B 不在正确集合 → 0
+		{"完全正确带空格", "A, C", 10, 10},
+		{"只选 C", "C", 5, 5},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			got := ScoreExam(questions, map[string]string{"1": c.pick})
-			if c.wantHit && got.AutoScore != 10 {
-				t.Errorf("%s：期望得分 10，实际 %d", c.name, got.AutoScore)
+			if got.PerQuestion[1] != c.wantRaw {
+				t.Errorf("%s：每题得分期望 %v，实际 %v", c.name, c.wantRaw, got.PerQuestion[1])
 			}
-			if !c.wantHit && got.AutoScore != 0 {
-				t.Errorf("%s：期望得分 0，实际 %d", c.name, got.AutoScore)
+			if got.AutoScore != c.wantRnd {
+				t.Errorf("%s：总分期望 %d，实际 %d", c.name, c.wantRnd, got.AutoScore)
+			}
+		})
+	}
+}
+
+func TestScoreExam_MultipleThreeCorrect(t *testing.T) {
+	// 用户举例：5 个选项里正确答案 A,C,D 共 3 个，满分 5 分
+	questions := []*model.ExamQuestionRow{
+		q(1, "multiple", "A,C,D", 5),
+	}
+	cases := []struct {
+		name    string
+		pick    string
+		wantRaw float64
+	}{
+		{"全对 3/3", "A,C,D", 5},
+		{"对 2 个漏 1 个", "A,C", 5 * 2.0 / 3.0},
+		{"对 1 个", "A", 5 * 1.0 / 3.0},
+		{"错选 B", "A,B,C,D", 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := ScoreExam(questions, map[string]string{"1": c.pick})
+			if got.PerQuestion[1] != c.wantRaw {
+				t.Errorf("%s：期望每题得分 %v，实际 %v", c.name, c.wantRaw, got.PerQuestion[1])
 			}
 		})
 	}
@@ -99,7 +127,7 @@ func TestSplitChoice(t *testing.T) {
 		in   string
 		want []string
 	}{
-		{"A,C,B", []string{"A", "C", "B"}},
+		{"A,C,B", []string{"A", "B", "C"}}, // splitChoice 内部会排序
 		{`["A","C"]`, []string{"A", "C"}},
 		{" A , C ", []string{"A", "C"}},
 	}

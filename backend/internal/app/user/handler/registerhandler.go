@@ -8,6 +8,7 @@ import (
 
 	"learningplatform/internal/app/user"
 	"learningplatform/internal/app/user/logic"
+	"learningplatform/internal/platform/response"
 	"learningplatform/internal/svc"
 
 	"github.com/zeromicro/go-zero/rest/httpx"
@@ -20,7 +21,7 @@ func RegisterHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		// 1. 解析请求体（JSON：username / password）
 		var req user.RegisterRequest
 		if err := httpx.Parse(r, &req); err != nil {
-			httpx.ErrorCtx(r.Context(), w, err)
+			response.WriteError(w, user.NewAuthError(http.StatusBadRequest, "请求格式不正确"))
 			return
 		}
 
@@ -31,12 +32,12 @@ func RegisterHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		l := logic.NewRegisterLogic(ctx, svcCtx)
 		resp, err := l.Register(&req)
 		if err != nil {
-			// 注册失败（参数为空 / 用户名已存在 / 触发限流）
-			httpx.ErrorCtx(r.Context(), w, err)
-		} else {
-			// 注册成功，返回用户名
-			httpx.OkJsonCtx(r.Context(), w, resp)
+			// 参数为空 / 用户名已存在 / 触发限流，均带正确状态码
+			response.WriteError(w, err)
+			return
 		}
+		// 注册成功，返回用户名
+		httpx.OkJsonCtx(r.Context(), w, resp)
 	}
 }
 

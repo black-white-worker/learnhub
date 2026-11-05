@@ -1,8 +1,9 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
+import { changePassword, fetchNotificationPrefs, updateNotificationPrefs } from '../api/index.js'
 
 const router = useRouter()
 const profile = ref({ username: '', nickname: '', role: '' })
@@ -30,6 +31,40 @@ async function load() {
   } catch (e) {
     notifications.value = []
   }
+}
+
+// 我的作业（/api/my/assignments：一次返回我所有班级的作业 + 提交状态）
+const assignments = ref([])
+const assignmentLoading = ref(false)
+
+const ASSIGN_STATUS = {
+  submitted: { text: '已提交', type: 'success' },
+  overdue: { text: '已截止未交', type: 'danger' },
+  pending: { text: '待完成', type: 'warning' },
+}
+
+async function loadAssignments() {
+  assignmentLoading.value = true
+  const token = localStorage.getItem('token')
+  try {
+    const r = await axios.get('/api/my/assignments', {
+      headers: { Authorization: 'Bearer ' + token },
+    })
+    assignments.value = r.data?.list || []
+  } catch (e) {
+    assignments.value = []
+  } finally {
+    assignmentLoading.value = false
+  }
+}
+
+function assignmentStatus(a) {
+  return ASSIGN_STATUS[a.myStatus] || ASSIGN_STATUS.pending
+}
+
+function fmtDeadline(t) {
+  if (!t) return '不限时'
+  return String(t).replace('T', ' ').slice(0, 16)
 }
 
 async function applyTeacher() {
@@ -71,7 +106,92 @@ async function markAllRead() {
   } catch (e) {}
 }
 
-onMounted(load)
+// ===== 通知偏好（接收渠道开关）=====
+// 后端 notification_preferences 表不预置数据，新用户查不到记录；
+// 这里给一个"业务默认值"：inapp(站内铃铛)默认开、email 默认关。
+// 列表返回的是已显式配置过的渠道，用默认值兜底再叠加，
+// 保证 UI 永远有完整的开关列表，首次切换也会被 Upsert 落库。
+const CHANNEL_DEFS = [
+  { channel: 'inapp', label: '站内通知', desc: '新消息实时推送到顶部铃铛' },
+  { channel: 'email', label: '邮件通知', desc: '重要动态（如审批结果）发到邮箱' },
+]
+const DEFAULT_PREFS = { inapp: 1, email: 0 }
+
+// prefs 以 channel 为键存开关值（1 开 / 0 关），用 reactive 让模板响应式更新
+const prefs = reactive({ ...DEFAULT_PREFS })
+const prefsLoading = ref(false)
+const savingChannel = ref('')
+
+async function loadPrefs() {
+  if (!localStorage.getItem('token')) return
+  prefsLoading.value = true
+  try {
+    const res = await fetchNotificationPrefs()
+    const list = res.data?.data?.prefs || []
+    const merged = { ...DEFAULT_PREFS }
+    list.forEach((p) => { merged[p.channel] = p.enabled })
+    Object.assign(prefs, merged)
+  } catch (e) {
+    // 拉取失败保持默认值，不打扰用户
+  } finally {
+    prefsLoading.value = false
+  }
+}
+
+// 切换开关：先乐观更新 UI，请求失败再回滚，体验更顺滑
+async function togglePref(channel, val) {
+  const prev = prefs[channel]
+  prefs[channel] = val
+  savingChannel.value = channel
+  try {
+    await updateNotificationPrefs({ channel, enabled: val })
+  } catch (e) {
+    prefs[channel] = prev // 回滚到切换前的值
+    ElMessage.error(e.response?.data?.message || '保存失败，请重试')
+  } finally {
+    savingChannel.value = ''
+  }
+}
+
+onMounted(() => {
+  load()
+  loadAssignments()
+  loadPrefs()
+})
+
+// ===== 修改密码 =====
+// 初始账号 / 管理员重置密码后，顶栏会常驻提示引导到本页。
+const pwdForm = reactive({ oldPassword: '', newPassword: '', confirm: '' })
+const pwdSaving = ref(false)
+
+async function submitPassword() {
+  if (pwdForm.newPassword.length < 6) {
+    ElMessage.warning('新密码至少 6 位')
+    return
+  }
+  if (pwdForm.newPassword !== pwdForm.confirm) {
+    ElMessage.warning('两次输入的新密码不一致')
+    return
+  }
+  pwdSaving.value = true
+  try {
+    await changePassword({
+      oldPassword: pwdForm.oldPassword,
+      newPassword: pwdForm.newPassword,
+    })
+    ElMessage.success('密码已更新')
+    pwdForm.oldPassword = ''
+    pwdForm.newPassword = ''
+    pwdForm.confirm = ''
+    // 通知 App.vue 重新拉一次会话，收起"必须改密"提示
+    window.dispatchEvent(new Event('dsh:session-updated'))
+    load()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.message || '修改失败，请检查原密码')
+  } finally {
+    pwdSaving.value = false
+  }
+}
 </script>
 
 <template>
@@ -95,6 +215,60 @@ onMounted(load)
           申请成为老师
         </el-button>
         <el-alert v-else type="success" :closable="false" title="申请已提交，请等待管理员审批" />
+      </div>
+    </el-card>
+
+    <!-- 修改密码：必须提供原密码，避免 token 泄露后被直接改密 -->
+    <el-card class="pwd-card">
+      <template #header>
+        <div class="notify-head">
+          <b>修改密码</b>
+          <el-tag v-if="profile.mustChangePassword" type="warning" size="small">建议立即修改</el-tag>
+        </div>
+      </template>
+      <el-form label-width="88px" @submit.prevent>
+        <el-form-item label="原密码">
+          <el-input v-model="pwdForm.oldPassword" type="password" show-password autocomplete="current-password" />
+        </el-form-item>
+        <el-form-item label="新密码">
+          <el-input v-model="pwdForm.newPassword" type="password" show-password autocomplete="new-password" placeholder="至少 6 位" />
+        </el-form-item>
+        <el-form-item label="确认新密码">
+          <el-input v-model="pwdForm.confirm" type="password" show-password autocomplete="new-password" />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="pwdSaving" @click="submitPassword">保存新密码</el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
+
+    <!-- 我的作业：跨班级聚合，按状态一眼看出哪些还没交 -->
+    <el-card class="assign-card" v-loading="assignmentLoading">
+      <template #header>
+        <div class="notify-head">
+          <b>我的作业</b>
+          <span class="all-read">共 {{ assignments.length }} 份</span>
+        </div>
+      </template>
+      <el-empty v-if="!assignments.length" description="暂无作业" :image-size="60" />
+      <div v-else class="assign-list">
+        <div
+          v-for="a in assignments"
+          :key="a.id"
+          class="assign-item"
+          @click="router.push(`/assignment/${a.id}`)"
+        >
+          <div class="assign-main">
+            <b>{{ a.title }}</b>
+            <small>{{ a.className }} · 截止 {{ fmtDeadline(a.deadline) }}</small>
+          </div>
+          <div class="assign-right">
+            <el-tag size="small" :type="assignmentStatus(a).type">{{ assignmentStatus(a).text }}</el-tag>
+            <span v-if="a.myScore !== null && a.myScore !== undefined" class="score">
+              {{ a.myScore }} / {{ a.totalScore }}
+            </span>
+          </div>
+        </div>
       </div>
     </el-card>
 
@@ -127,6 +301,29 @@ onMounted(load)
         </div>
       </div>
     </el-card>
+
+    <!-- 通知偏好：控制各渠道是否接收通知，切换后实时落库 -->
+    <el-card class="pref-card" v-loading="prefsLoading">
+      <template #header>
+        <div class="notify-head">
+          <b>通知偏好</b>
+          <span class="all-read">切换后自动保存</span>
+        </div>
+      </template>
+      <div class="pref-list">
+        <div v-for="c in CHANNEL_DEFS" :key="c.channel" class="pref-item">
+          <div class="pref-main">
+            <b>{{ c.label }}</b>
+            <small>{{ c.desc }}</small>
+          </div>
+          <el-switch
+            :model-value="prefs[c.channel] === 1"
+            :loading="savingChannel === c.channel"
+            @change="(v) => togglePref(c.channel, v ? 1 : 0)"
+          />
+        </div>
+      </div>
+    </el-card>
   </div>
 </template>
 
@@ -134,7 +331,28 @@ onMounted(load)
 .profile-page { padding: 24px; max-width: 640px; margin: 0 auto; }
 .profile-card { padding: 12px; margin-bottom: 16px; }
 .apply-box { margin-top: 16px; }
+.pwd-card { padding: 12px; margin-bottom: 16px; }
 .notify-card { padding: 12px; }
+.pref-card { padding: 12px; margin-bottom: 16px; }
+.pref-list { display: flex; flex-direction: column; gap: 8px; }
+.pref-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px; border-radius: 8px; border: 1px solid #f1f5f9;
+}
+.pref-item:hover { background: #f8fafc; }
+.pref-main b { font-size: 14px; color: #1f2937; display: block; }
+.pref-main small { color: #9ca3af; font-size: 12px; }
+.assign-card { padding: 12px; margin-bottom: 16px; }
+.assign-list { display: flex; flex-direction: column; gap: 8px; }
+.assign-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px; border-radius: 8px; cursor: pointer; border: 1px solid #f1f5f9;
+}
+.assign-item:hover { background: #f8fafc; }
+.assign-main b { font-size: 14px; color: #1f2937; display: block; }
+.assign-main small { color: #9ca3af; font-size: 12px; }
+.assign-right { display: flex; align-items: center; gap: 8px; }
+.assign-right .score { font-size: 13px; color: #475569; }
 .notify-head { display: flex; justify-content: space-between; align-items: center; }
 .all-read { color: #9ca3af; font-size: 13px; }
 .notify-list { display: flex; flex-direction: column; gap: 8px; }

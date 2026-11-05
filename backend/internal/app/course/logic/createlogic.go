@@ -39,6 +39,8 @@ func (l *CreateLogic) Create(req *course.CreateRequest) (resp *course.CreateResp
 	if err != nil {
 		return nil, err
 	}
+	// 2.1 列表缓存失效：否则老师新建的课自己在 60 秒缓存内看不到
+	course.InvalidateListCache(l.svcCtx.Redis)
 
 	// 3. 创建成功，返回新课程信息
 	return &course.CreateResponse{Id: c.Id, Name: c.Name}, nil

@@ -33,6 +33,15 @@ func GradeAutoAnswers(questions []*model.QuestionRow, answers map[string]string)
 	return autoScore
 }
 
+// SumQuestionScore 试卷/作业满分之和（作业没配总分时作为成绩项满分的兜底）。
+func SumQuestionScore(questions []*model.QuestionRow) int {
+	sum := 0
+	for _, q := range questions {
+		sum += q.Score
+	}
+	return sum
+}
+
 // SameMultiChoice 比较两个逗号分隔的选项字母集合，忽略顺序和大小写。
 // "A,C" 与 "C,a" 视为相同；"A,B" 与 "A" 或 "A,C" 不同（必须完全一致）。
 // 导出供 exam 包复用。

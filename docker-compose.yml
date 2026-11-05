@@ -41,7 +41,7 @@ services:
 
   # ===== MinIO 对象存储（课程封面 / 缩略图 / 视频）=====
   minio:
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    image: registry.cn-qingdao.aliyuncs.com/xuxiaoweicomcn/minio:RELEASE.2025-03-12T18-04-18Z
     container_name: learningplatform-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -55,9 +55,10 @@ services:
     volumes:
       - minio_data:/data
 
-  # MinIO 初始化：建桶 + 开放 course/ 前缀公开读（浏览器才能直接打开图片/视频）
+  # MinIO 初始化：建桶 + 按 MINIO_PRIVATE 决定 course/ 前缀是公开读还是私有
   minio-init:
-    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    # 服务镜像内自带 mc，复用青岛阿里云仓库的 MinIO 镜像，避开 Docker Hub 镜像代理 403。
+    image: registry.cn-qingdao.aliyuncs.com/xuxiaoweicomcn/minio:RELEASE.2025-03-12T18-04-18Z
     restart: "no"
     depends_on:
       minio:
@@ -69,11 +70,18 @@ services:
         until mc alias set local http://minio:9000 "$${MINIO_ACCESS_KEY}" "$${MINIO_SECRET_KEY}";
         do sleep 2; done &&
         mc mb --ignore-existing "local/$${MINIO_BUCKET}" &&
-        mc anonymous set download "local/$${MINIO_BUCKET}/course/"
+        if [ "$${MINIO_PRIVATE}" = "true" ]; then
+          echo "私有桶模式：关闭 course/ 的匿名读，媒体统一走预签名 URL";
+          mc anonymous set none "local/$${MINIO_BUCKET}/course/" || true;
+        else
+          echo "公开桶模式：course/ 开放匿名读";
+          mc anonymous set download "local/$${MINIO_BUCKET}/course/";
+        fi
     environment:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
       MINIO_BUCKET: ${MINIO_BUCKET}
+      MINIO_PRIVATE: ${MINIO_PRIVATE:-false}
 
   # ===== Flyway 数据库迁移（版本化 SQL 管理） =====
   # 在 backend 启动前执行 deploy/sql/migration 下的 V*.sql，
@@ -123,10 +131,13 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
       MINIO_BUCKET: ${MINIO_BUCKET}
+      # 私有桶开关：true 时后端返回预签名 URL（需同时把桶策略改成私有）
+      MINIO_PRIVATE: ${MINIO_PRIVATE:-false}
     ports:
       - "127.0.0.1:${BACKEND_PORT}:8888"
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:8888/api/from/you || exit 1"]
+      # /healthz 只检查进程存活；依赖可用性走 /readyz（容器重启修不了数据库）
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8888/healthz || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 20

@@ -18,18 +18,24 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 		course.InitCourseStore(serverCtx.CourseStore)
 	}
 
-	// 公开只读接口（首页课程列表、详情、视频播放、资源预览）
+	// 公开只读接口（首页课程列表、课程详情）。
+	// 用"可选登录"中间件：带了 token 就识别用户（详情据此返回 canWatch / 视频地址），
+	// 没带 token 也照常放行，按匿名展示。
 	publicRoutes := []rest.Route{
 		{Method: http.MethodGet, Path: "/api/course/list", Handler: ListHandler(serverCtx)},
 		{Method: http.MethodGet, Path: "/api/course/detail/:id", Handler: CourseDetailHandler(serverCtx)},
+	}
+	server.AddRoutes(
+		rest.WithMiddleware(user.NewAuthMiddleware(serverCtx).HandleOptional, publicRoutes...),
+	)
+
+	// 需登录的写操作 + 媒体读取接口。
+	// 媒体（播放 / 资源列表 / 在线预览）返回的是预签名 URL，
+	// 必须绑定登录态与选课关系，不能放在公开路由上。
+	protectedRoutes := []rest.Route{
 		{Method: http.MethodGet, Path: "/api/course/video/play/:courseId/:videoId", Handler: VideoPlayHandler(serverCtx)},
 		{Method: http.MethodGet, Path: "/api/course/resources/:courseId", Handler: ResourceListHandler(serverCtx)},
 		{Method: http.MethodGet, Path: "/api/course/resource/preview/:courseId/:resourceId", Handler: ResourcePreviewHandler(serverCtx)},
-	}
-	server.AddRoutes(publicRoutes)
-
-	// 需登录的写操作接口
-	protectedRoutes := []rest.Route{
 		{Method: http.MethodPost, Path: "/api/course/create", Handler: CreateHandler(serverCtx)},
 		{Method: http.MethodPost, Path: "/api/course/upload/cover", Handler: CoverUploadHandler(serverCtx)},
 		{Method: http.MethodPost, Path: "/api/course/upload/videos", Handler: VideoUploadHandler(serverCtx)},

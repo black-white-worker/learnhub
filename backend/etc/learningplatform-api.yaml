@@ -16,15 +16,28 @@ Minio:
   SecretKey: "${MINIO_SECRET_KEY}"
   UseSSL: false
   Bucket: "${MINIO_BUCKET}"
+  # 私有桶开关（MINIO_PRIVATE=true 开启）：开启后课程详情/播放/资源列表返回
+  # 30 分钟有效的预签名 URL，不再依赖桶的匿名读策略（防盗链）。
+  #
+  # 必须写成**不带引号**的布尔占位符：
+  # 写成 Private: "${MINIO_PRIVATE}" 展开后是字符串 "false"，
+  # go-zero 会报 type mismatch for field Minio.Private 并拒绝启动（容器反复重启）。
+  # 变量缺失时该行变成空值，YAML 解析为 null，bool 取零值 false，同样安全。
+  # 开启前需要把桶策略改成私有：mc anonymous set none local/<bucket>/course/
+  Private: ${MINIO_PRIVATE}
 
 # 上传大小限制（字节）
 Upload:
   MaxCoverBytes: 5242880      # 封面 5MB
   MaxVideoBytes: 524288000    # 单个视频 500MB
+  # 每个用户每日上传总量上限（2GB）：0 = 不限制。
+  # 计数在 Redis（upload:quota:YYYYMMDD:userId，48h TTL），用于防"账号被盗后把存储灌满"。
+  # 上传失败会归还额度（见 quota.Release），不会因为一次失败永久吃额度。
+  DailyQuotaBytesPerUser: 2147483648
 
 # ===== MySQL 配置 =====
 # 数据源通过环境变量 MYSQL_DSN 注入（本机直跑示例）：
-#   MYSQL_DSN=root:Java666@tcp(127.0.0.1:3316)/learningplatform?charset=utf8mb4&parseTime=true&loc=Local
+#   MYSQL_DSN=root:<密码>@tcp(127.0.0.1:3316)/learningplatform?charset=utf8mb4&parseTime=true&loc=Local
 # Docker Compose 里会自动指向 mysql 容器，无需手动设置。
 Mysql:
   DataSource: "${MYSQL_DSN}"

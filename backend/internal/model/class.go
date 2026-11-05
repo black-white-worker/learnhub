@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
@@ -145,6 +146,30 @@ func (m *ClassModel) UnbindCourse(classId, courseId int64) error {
 	return err
 }
 
+// CourseEnrollmentStats 课程的教学范围：
+//   - bound 这门课被多少个班级绑定（0 = 独立公开课）
+//   - mine  当前用户加入了其中多少个班级
+//
+// 用于媒体访问控制（见 course/media_access.go）：一门课只要被班级绑定，
+// 就要求访问者是其中某个班的成员，否则只有创建者/管理员能看。
+func (m *ClassModel) CourseEnrollmentStats(courseId, userId int64) (bound, mine int, err error) {
+	var row struct {
+		Bound int `db:"bound"`
+		Mine  int `db:"mine"`
+	}
+	err = m.conn.QueryRowCtx(context.Background(), &row, `
+		SELECT
+		  (SELECT COUNT(*) FROM class_courses WHERE course_id = ?) AS bound,
+		  (SELECT COUNT(*) FROM class_courses cc
+		     JOIN class_members cm ON cm.class_id = cc.class_id
+		    WHERE cc.course_id = ? AND cm.user_id = ?) AS mine`,
+		courseId, courseId, userId)
+	if err != nil {
+		return 0, 0, err
+	}
+	return row.Bound, row.Mine, nil
+}
+
 func (m *ClassModel) ListClassCourseIds(classId int64) ([]int64, error) {
 	var ids []int64
 	err := m.conn.QueryRowsCtx(context.Background(), &ids,
@@ -261,17 +286,17 @@ func (m *ClassModel) GetAnnouncement(id int64) (*AnnouncementRow, error) {
 // ---- assignments 作业 ----
 
 type AssignmentRow struct {
-	Id          int64        `db:"id" json:"id"`
-	ClassId     int64        `db:"class_id" json:"classId"`
-	CourseId    int64        `db:"course_id" json:"courseId"`
-	Title       string       `db:"title" json:"title"`
-	Description string       `db:"description" json:"description"`
-	Deadline    sql.NullTime `db:"deadline" json:"-"` // 用 MarshalJSON 自定义输出，避免暴露 {Time,Valid} 内部结构
-	TotalScore  int          `db:"total_score" json:"totalScore"`
-	AllowLate   int          `db:"allow_late" json:"allowLate"`
+	Id           int64        `db:"id" json:"id"`
+	ClassId      int64        `db:"class_id" json:"classId"`
+	CourseId     int64        `db:"course_id" json:"courseId"`
+	Title        string       `db:"title" json:"title"`
+	Description  string       `db:"description" json:"description"`
+	Deadline     sql.NullTime `db:"deadline" json:"-"` // 用 MarshalJSON 自定义输出，避免暴露 {Time,Valid} 内部结构
+	TotalScore   int          `db:"total_score" json:"totalScore"`
+	AllowLate    int          `db:"allow_late" json:"allowLate"`
 	LateDeadline sql.NullTime `db:"late_deadline" json:"-"`
-	PublisherId int64        `db:"publisher_id" json:"publisherId"`
-	CreatedAt   time.Time    `db:"created_at" json:"createdAt"`
+	PublisherId  int64        `db:"publisher_id" json:"publisherId"`
+	CreatedAt    time.Time    `db:"created_at" json:"createdAt"`
 }
 
 // MarshalJSON 自定义作业 JSON 输出：
@@ -290,13 +315,13 @@ func (a *AssignmentRow) MarshalJSON() ([]byte, error) {
 		ldl = a.LateDeadline.Time.Format("2006-01-02 15:04")
 	}
 	return json.Marshal(&struct {
-		Deadline    string `json:"deadline"`
+		Deadline     string `json:"deadline"`
 		LateDeadline string `json:"lateDeadline"`
 		*Alias
 	}{
-		Deadline:    dl,
+		Deadline:     dl,
 		LateDeadline: ldl,
-		Alias:       (*Alias)(a),
+		Alias:        (*Alias)(a),
 	})
 }
 
@@ -330,16 +355,16 @@ func (m *ClassModel) GetAssignment(id int64) (*AssignmentRow, error) {
 // ---- assignment_submissions 作业提交 ----
 
 type SubmissionRow struct {
-	Id           int64         `db:"id" json:"id"`
-	AssignmentId int64         `db:"assignment_id"`
-	UserId       int64         `db:"user_id" json:"userId"`
-	Content      string        `db:"content" json:"content"`
+	Id           int64  `db:"id" json:"id"`
+	AssignmentId int64  `db:"assignment_id"`
+	UserId       int64  `db:"user_id" json:"userId"`
+	Content      string `db:"content" json:"content"`
 	// Answers 客观题作答 JSON，V11 加列。学生提交时由 logic 层写入。
-	Answers    string        `db:"answers" json:"answers"`
-	FileUrl    string        `db:"file_url" json:"fileUrl"`
-	Score      sql.NullInt64 `db:"score" json:"-"` // 老师手打分，MarshalJSON 输出数字或 null
-	AutoScore  sql.NullInt64 `db:"auto_score" json:"-"` // 客观题自动判分，MarshalJSON 输出数字或 null
-	Comment    string        `db:"comment" json:"comment"`
+	Answers     string        `db:"answers" json:"answers"`
+	FileUrl     string        `db:"file_url" json:"fileUrl"`
+	Score       sql.NullInt64 `db:"score" json:"-"`      // 老师手打分，MarshalJSON 输出数字或 null
+	AutoScore   sql.NullInt64 `db:"auto_score" json:"-"` // 客观题自动判分，MarshalJSON 输出数字或 null
+	Comment     string        `db:"comment" json:"comment"`
 	SubmittedAt time.Time     `db:"submitted_at" json:"submittedAt"`
 }
 
@@ -498,46 +523,10 @@ func (m *ClassModel) ListReplies(discussionId int64) ([]*ReplyRow, error) {
 }
 
 // ---- 成绩与学情 ----
-
-type GradeRow struct {
-	UserId        int64   `db:"user_id" json:"userId"`
-	Username      string  `db:"username" json:"username"`
-	Role          string  `db:"role" json:"role"`
-	AvgScore      float64 `db:"avg_score" json:"avgScore"`           // 作业平均分（有分的）
-	AssignmentCnt int     `db:"assignment_cnt" json:"assignmentCnt"` // 已交作业数
-	SigninCnt     int     `db:"signin_cnt" json:"signinCnt"`         // 签到次数
-	TotalScore    float64 `db:"total_score" json:"totalScore"`       // 加权总分（后端按权重算）
-}
-
-// ListGrades 聚合班级内每个学生的作业平均分、已交数、签到次数。
-// 依赖 signin_records（互动功能分支）和 assignment_submissions（V7）表。
-func (m *ClassModel) ListGrades(classId int64) ([]*GradeRow, error) {
-	var rows []*GradeRow
-	err := m.conn.QueryRowsCtx(context.Background(), &rows, `
-		SELECT cm.user_id AS user_id, u.username AS username, cm.role AS role,
-		       COALESCE((
-		         SELECT AVG(COALESCE(s.auto_score, s.score))
-		         FROM assignment_submissions s
-		         JOIN assignments a ON s.assignment_id=a.id
-		         WHERE a.class_id=? AND s.user_id=cm.user_id AND s.score IS NOT NULL
-		       ), 0) AS avg_score,
-		       COALESCE((
-		         SELECT COUNT(*) FROM assignment_submissions s
-		         JOIN assignments a ON s.assignment_id=a.id
-		         WHERE a.class_id=? AND s.user_id=cm.user_id
-		       ), 0) AS assignment_cnt,
-		       COALESCE((
-		         SELECT COUNT(*) FROM signin_records r
-		         JOIN class_signin cs ON r.signin_id=cs.id
-		         WHERE cs.class_id=? AND r.user_id=cm.user_id
-		       ), 0) AS signin_cnt,
-		       0 AS total_score
-		FROM class_members cm JOIN users u ON cm.user_id=u.id
-		WHERE cm.class_id=?
-		ORDER BY avg_score DESC
-	`, classId, classId, classId, classId)
-	return rows, err
-}
+//
+// 说明：成绩册的聚合查询已迁到 model/grade.go（ListGradebookRaw），
+// 这里只保留"权重规则"这类班级配置。旧的 ListGrades 子查询实现已删除：
+// 它把视频项写死成满分、签到不封顶、还丢掉了考试权重，算出来的总分没有意义。
 
 // GetGradeRule 取班级成绩权重
 func (m *ClassModel) GetGradeRule(classId int64) (videoW, assignW, signinW, examW int, err error) {
@@ -695,6 +684,60 @@ func (m *ClassModel) ListReadUserIds(announcementId int64) ([]int64, error) {
 	err := m.conn.QueryRowsCtx(context.Background(), &ids,
 		"SELECT user_id FROM announcement_reads WHERE announcement_id=?", announcementId)
 	return ids, err
+}
+
+// AnnouncementReadStat 一条公告的已读聚合结果。
+type AnnouncementReadStat struct {
+	AnnouncementId int64
+	ReadCount      int
+	ReadByMe       bool
+}
+
+// AnnouncementReadStats 批量取"某页公告"的已读人数 + 我是否已读。
+//
+// 为什么提供批量接口：列表页原来对每条公告各查一次 announcement_reads（N+1），
+// 一个班 20 条公告就是 20 次往返，还额外把每条的完整已读名单拉回 Go 再遍历。
+// 这里用一条 GROUP BY 把整页的计数与"我是否读过"一次算完：
+//   - 行数从 O(N×已读人数) 降到 O(N)；
+//   - 往返从 N 次降到 1 次；
+//   - 走 uk_ann_user(announcement_id, user_id) 的 IN 范围扫描。
+//
+// 返回 map，调用方按需取值；没有已读记录的公告不会出现在 map 里（即 0 / false）。
+func (m *ClassModel) AnnouncementReadStats(userId int64, announcementIds []int64) (map[int64]AnnouncementReadStat, error) {
+	out := make(map[int64]AnnouncementReadStat, len(announcementIds))
+	if len(announcementIds) == 0 {
+		return out, nil
+	}
+	holders := strings.TrimSuffix(strings.Repeat("?,", len(announcementIds)), ",")
+	args := make([]interface{}, 0, len(announcementIds)+1)
+	args = append(args, userId)
+	for _, id := range announcementIds {
+		args = append(args, id)
+	}
+	var rows []struct {
+		AnnouncementId int64 `db:"announcement_id"`
+		ReadCount      int   `db:"read_count"`
+		ReadByMe       int   `db:"read_by_me"`
+	}
+	// 注意：SELECT 里的占位符在 SQL 文本中先于 WHERE，参数顺序必须是 userId 在前。
+	err := m.conn.QueryRowsCtx(context.Background(), &rows,
+		`SELECT announcement_id,
+		        COUNT(*) AS read_count,
+		        MAX(CASE WHEN user_id = ? THEN 1 ELSE 0 END) AS read_by_me
+		   FROM announcement_reads
+		  WHERE announcement_id IN (`+holders+`)
+		  GROUP BY announcement_id`, args...)
+	if err != nil {
+		return out, err
+	}
+	for _, r := range rows {
+		out[r.AnnouncementId] = AnnouncementReadStat{
+			AnnouncementId: r.AnnouncementId,
+			ReadCount:      r.ReadCount,
+			ReadByMe:       r.ReadByMe == 1,
+		}
+	}
+	return out, nil
 }
 
 // CountUnreadByClass 返回当前用户在某班未读公告数

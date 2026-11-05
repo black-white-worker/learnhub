@@ -12,10 +12,10 @@ import (
 // 两边都会定义 Course 结构体（以及自己的课程存储），
 // 合并到「课程管理功能」主干时整个文件冲突，需要手动合并。
 type Course struct {
-	Id      int    `json:"id"`
-	Name    string `json:"name"`
-	Intro   string `json:"intro"`
-	Teacher string `json:"teacher"`
+	Id        int    `json:"id"`
+	Name      string `json:"name"`
+	Intro     string `json:"intro"`
+	Teacher   string `json:"teacher"`
 	CreatedBy string `json:"createdBy"` // 创建者用户名（非创建者只读）
 
 	// ===== 以下字段为 MinIO 上传功能新增（原字段保持不变）=====
@@ -42,8 +42,8 @@ type Video struct {
 	// 以下为「课程观看」分支新增
 	Faststarted bool `json:"faststarted"` // 是否已生成 moov 前置（+faststart）版本
 
-	CourseId    int    // 所属课程 id（内部用，不序列化）
-	ObjectName  string // 源视频在 MinIO 内的对象路径（内部用，不序列化）
+	CourseId   int    `json:"-"` // 所属课程 id（内部用，不序列化）
+	ObjectName string `json:"-"` // 源视频在 MinIO 内的对象路径（内部用，不序列化）
 }
 
 // CourseStore 课程存储接口：

@@ -49,6 +49,11 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Path:    "/api/user/info",
 					Handler: InfoHandler(serverCtx),
 				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/api/user/password",
+					Handler: PasswordHandler(serverCtx),
+				},
 			}...,
 		),
 	)
