@@ -37,7 +37,7 @@ class RAGState(TypedDict):
 
 async def node_rewrite(state: RAGState) -> dict:
     """结合会话历史，把 '它是什么' 这种指代补全成完整问题。"""
-    hist = get_history(state["user_id"], state["course_id"])
+    hist = await get_history(state["user_id"], state["course_id"])
     if not hist:
         return {"rewritten": state["query"]}
     # 简单改写：把最近 2 轮拼进去让 LLM 补全
@@ -68,7 +68,7 @@ async def node_prompt(state: RAGState) -> dict:
         "答案末尾用【参考资料】列出引用到的片段标题。\n\n"
         f"课程资料：\n{ctx_text}"
     )
-    hist = get_history(state["user_id"], state["course_id"])
+    hist = await get_history(state["user_id"], state["course_id"])
     messages = [{"role": "system", "content": sys}]
     messages.extend(hist)
     messages.append({"role": "user", "content": state["query"]})

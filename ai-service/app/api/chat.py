@@ -7,14 +7,14 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
 import json
-import redis
+import redis.asyncio as aioredis
 
 from app.core.config import settings
 from app.graph.rag_graph import graph, stream_answer
 from app.rag.session import append_turn, get_history
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
-_r = redis.from_url(settings.redis_url, decode_responses=True)
+_r = aioredis.from_url(settings.redis_url, decode_responses=True)
 
 
 def get_user_id(req: Request) -> int:
@@ -34,10 +34,12 @@ class ChatReq(BaseModel):
 async def chat(body: ChatReq, req: Request):
     """SSE 流式答疑。"""
     user_id = get_user_id(req)
+
+    # 限流：每天每用户 N 次（异步 Redis，不阻塞事件循环）
     key = f"ai:limit:u{user_id}:{__import__('datetime').date.today()}"
-    cnt = _r.incr(key)
+    cnt = await _r.incr(key)
     if cnt == 1:
-        _r.expire(key, 86400)
+        await _r.expire(key, 86400)
     if cnt > settings.daily_token_limit:
         raise HTTPException(429, "今日 AI 调用已达上限")
 
@@ -58,8 +60,9 @@ async def chat(body: ChatReq, req: Request):
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
         finally:
+            # 写完历史（异步）
             if answer_parts:
-                append_turn(user_id, body.course_id, body.query, "".join(answer_parts))
+                await append_turn(user_id, body.course_id, body.query, "".join(answer_parts))
 
     return StreamingResponse(event_stream(), media_type="text/event-stream", headers={
         "Cache-Control": "no-cache",
