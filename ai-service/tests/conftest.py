@@ -8,3 +8,5 @@ import os
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/15")
 os.environ.setdefault("LLM_API_KEY", "test-key")
 os.environ.setdefault("VECTOR_DB_DIR", "./data/test_chroma")
+# 测试时关闭内部 token 校验，否则 TestClient 所有请求都被 403
+os.environ.setdefault("INTERNAL_AUTH_ENABLED", "false")

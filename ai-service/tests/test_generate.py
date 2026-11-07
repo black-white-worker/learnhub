@@ -15,6 +15,9 @@ from app.main import app
 
 client = TestClient(app)
 
+# 出题接口需要 teacher/admin 角色
+TEACHER_HEADERS = {"X-User-Id": "1", "X-Role": "teacher"}
+
 
 def test_generate_no_user_id():
     r = client.post("/api/ai/generate", json={"knowledge": "RAG"})
@@ -25,7 +28,7 @@ def test_generate_invalid_type():
     r = client.post(
         "/api/ai/generate",
         json={"knowledge": "RAG", "qtype": "invalid"},
-        headers={"X-User-Id": "1"},
+        headers=TEACHER_HEADERS,
     )
     assert r.status_code == 400
 
@@ -34,7 +37,7 @@ def test_generate_count_out_of_range():
     r = client.post(
         "/api/ai/generate",
         json={"knowledge": "RAG", "qtype": "single", "count": 20},
-        headers={"X-User-Id": "1"},
+        headers=TEACHER_HEADERS,
     )
     assert r.status_code == 400
 
@@ -54,7 +57,7 @@ def test_generate_single_choice():
         r = client.post(
             "/api/ai/generate",
             json={"knowledge": "RAG", "qtype": "single", "count": 1, "score": 5},
-            headers={"X-User-Id": "1"},
+            headers=TEACHER_HEADERS,
         )
         assert r.status_code == 200
         data = r.json()
@@ -77,7 +80,7 @@ def test_generate_llm_returns_raw_text():
         r = client.post(
             "/api/ai/generate",
             json={"knowledge": "RAG", "qtype": "essay", "count": 1},
-            headers={"X-User-Id": "1"},
+            headers=TEACHER_HEADERS,
         )
         assert r.status_code == 200
         assert r.json().get("raw") is True

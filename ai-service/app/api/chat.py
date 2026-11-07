@@ -2,16 +2,17 @@
 - POST /api/ai/chat          SSE 流式答疑
 其他接口：summary.py（学习总结）、generate.py（AI出题）、session.py（会话管理）。
 """
+from datetime import date
+import json
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
-import json
 import redis.asyncio as aioredis
 
 from app.core.config import settings
-from app.graph.rag_graph import graph, stream_answer
-from app.rag.session import append_turn, get_history
+from app.graph.rag_graph import stream_answer
+from app.rag.session import append_turn
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 _r = aioredis.from_url(settings.redis_url, decode_responses=True)
@@ -21,7 +22,10 @@ def get_user_id(req: Request) -> int:
     uid = req.headers.get("X-User-Id")
     if not uid:
         raise HTTPException(401, "missing X-User-Id")
-    return int(uid)
+    try:
+        return int(uid)
+    except ValueError:
+        raise HTTPException(400, "invalid X-User-Id")
 
 
 class ChatReq(BaseModel):
@@ -36,7 +40,7 @@ async def chat(body: ChatReq, req: Request):
     user_id = get_user_id(req)
 
     # 限流：每天每用户 N 次（异步 Redis，不阻塞事件循环）
-    key = f"ai:limit:u{user_id}:{__import__('datetime').date.today()}"
+    key = f"ai:limit:u{user_id}:{date.today().isoformat()}"
     cnt = await _r.incr(key)
     if cnt == 1:
         await _r.expire(key, 86400)
@@ -68,34 +72,3 @@ async def chat(body: ChatReq, req: Request):
         "Cache-Control": "no-cache",
         "X-Accel-Buffering": "no",
     })
-
-
-class GenQuestionReq(BaseModel):
-    knowledge: str
-    difficulty: str = "中等"
-    qtype: str = "essay"  # essay / fill
-    count: int = 2
-
-
-@router.post("/generate")
-async def gen_question(body: GenQuestionReq, req: Request):
-    """AI 出题：返回题目+参考答案，老师审核后再入库。"""
-    from openai import AsyncOpenAI
-    llm = AsyncOpenAI(base_url=settings.llm_base_url, api_key=settings.llm_api_key, timeout=settings.llm_timeout)
-    prompt = (
-        f"根据知识点【{body.knowledge}】，难度：{body.difficulty}，"
-        f"生成{body.count}道{body.qtype=='essay'?'简答':'填空'}题，输出严格JSON数组："
-        '[{"question":"题目","answer":"参考答案"}]，不要额外文字。'
-    )
-    resp = await llm.chat.completions.create(
-        model=settings.llm_model, messages=[{"role": "user", "content": prompt}], temperature=0.7,
-    )
-    text = resp.choices[0].message.content.strip()
-    # 简单提取 JSON
-    try:
-        start = text.index("[")
-        end = text.rindex("]") + 1
-        questions = json.loads(text[start:end])
-    except Exception:
-        questions = [{"question": text, "answer": ""}]
-    return {"questions": questions}

@@ -9,7 +9,6 @@
 import argparse
 import tiktoken
 import pymysql
-from app.rag.embedding import embed_batch
 from app.rag.vector_store import get_vector_store
 from app.core.config import settings
 
@@ -51,9 +50,7 @@ def ingest_course(course_id: int):
         print(f"[ingest] course {course_id} 没有可灌入的资源")
         return
 
-    embeddings = embed_batch(all_chunks)
-    # ChromaStore.upsert 自己内部会做 embedding 传入？这里直接用它的 upsert（它内部不 embed，我们传文本）
-    # 简化：直接调 store.upsert，它存 documents；检索时再 embed query。
+    # ChromaStore.upsert 内部会调 embed_batch，这里只传文本和元数据即可
     store.upsert(course_id, all_chunks, all_metas)
     print(f"[ingest] course {course_id} 灌入 {len(all_chunks)} 个切片")
 

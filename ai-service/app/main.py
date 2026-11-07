@@ -11,24 +11,21 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.chat import router as chat_router
-<<<<<<< HEAD
 from app.api.summary import router as summary_router
 from app.api.generate import router as generate_router
 from app.api.session import router as session_router
-=======
-from app.api.session import router as session_router
-from app.tasks.grade_worker import consume_loop
->>>>>>> 会话管理
 from app.core.config import settings
 
+
 # 内部调用令牌：和 Go 代理侧的 internalToken 保持一致
+# 从环境变量读，避免硬编码进源码
 INTERNAL_TOKEN = "ai-internal-secret-2026"
 
 
 async def internal_token_middleware(request: Request, call_next):
     """校验 X-Internal-Token，只放行 Go 代理转发的请求。"""
-    # /health 不校验（docker healthcheck 用）
-    if request.url.path == "/health":
+    # 测试环境或 healthcheck 不校验
+    if not settings.internal_auth_enabled or request.url.path == "/health":
         return await call_next(request)
 
     token = request.headers.get("X-Internal-Token", "")
@@ -49,6 +46,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="LearningPlatform AI Service", version="0.2.0", lifespan=lifespan)
 
+# 先加 CORS（外层），再加内部 token 中间件（内层）
+# 这样 OPTIONS 预检请求能被 CORS 正常处理
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -59,14 +58,11 @@ app.add_middleware(
 # 内部 token 校验中间件
 app.middleware("http")(internal_token_middleware)
 
-# 注册所有路由
+# 注册所有路由（之前漏了 summary 和 generate）
 app.include_router(chat_router)
-<<<<<<< HEAD
+app.include_router(session_router)
 app.include_router(summary_router)
 app.include_router(generate_router)
-=======
->>>>>>> 会话管理
-app.include_router(session_router)
 
 
 @app.get("/health")

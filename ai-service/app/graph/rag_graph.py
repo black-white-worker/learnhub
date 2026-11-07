@@ -51,7 +51,7 @@ async def node_rewrite(state: RAGState) -> dict:
 
 async def node_retrieve(state: RAGState) -> dict:
     """向量检索 Top3。"""
-    emb = embed(state["rewritten"])
+    emb = await embed(state["rewritten"])
     hits = _store.query(state["course_id"], emb, top_k=3)
     contexts = [{"text": t, "metadata": m, "score": s} for t, m, s in hits]
     return {"contexts": contexts}

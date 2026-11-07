@@ -7,7 +7,7 @@
 4. 清空会话：mock Redis delete 被调用
 """
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -31,7 +31,7 @@ def test_history_with_data():
         {"role": "user", "content": "什么是RAG"},
         {"role": "assistant", "content": "RAG是检索增强生成"},
     ]
-    with patch("app.api.session.get_history", return_value=fake_history):
+    with patch("app.api.session.get_history", new_callable=AsyncMock, return_value=fake_history):
         r = client.get(
             "/api/ai/session/history?course_id=4",
             headers={"X-User-Id": "26"},
@@ -45,7 +45,7 @@ def test_history_with_data():
 
 
 def test_history_empty():
-    with patch("app.api.session.get_history", return_value=[]):
+    with patch("app.api.session.get_history", new_callable=AsyncMock, return_value=[]):
         r = client.get(
             "/api/ai/session/history?course_id=4",
             headers={"X-User-Id": "26"},
@@ -55,7 +55,7 @@ def test_history_empty():
 
 
 def test_clear_session():
-    with patch("app.api.session.clear") as mock_clear:
+    with patch("app.api.session.clear", new_callable=AsyncMock) as mock_clear:
         r = client.delete(
             "/api/ai/session?course_id=4",
             headers={"X-User-Id": "26"},

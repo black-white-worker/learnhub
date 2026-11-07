@@ -42,5 +42,8 @@ class Settings(BaseSettings):
     # 限流：每个用户每天 AI 调用上限
     daily_token_limit: int = 100
 
+    # 内部 token 校验开关（测试环境关闭，避免 TestClient 全被 403）
+    internal_auth_enabled: bool = True
+
 
 settings = Settings()

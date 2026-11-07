@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import List, Optional
 import json
+from openai import AsyncOpenAI
 
 from app.core.config import settings
 
@@ -40,11 +41,11 @@ class GenQuestionReq(BaseModel):
 
 
 TYPE_PROMPTS = {
-    "single": '生成{count}道单选题，每题4个选项(A/B/C/D)，标注正确答案。输出JSON数组：[{"stem":"题干","options":["选项A","选项B","选项C","选项D"],"answer":"A","score":{score}}]',
-    "multiple": '生成{count}道多选题，每题4个选项，答案可能有2-4个。输出JSON数组：[{"stem":"题干","options":["选项A","选项B","选项C","选项D"],"answer":"ABD","score":{score}}]',
-    "judge": '生成{count}道判断题，答案只有true或false。输出JSON数组：[{"stem":"题干","answer":true,"score":{score}}]',
-    "fill": '生成{count}道填空题，答案是简短关键词。输出JSON数组：[{"stem":"题干（用____表示空）","answer":"参考答案","score":{score}}]',
-    "essay": '生成{count}道简答题，给参考答案要点。输出JSON数组：[{"stem":"题干","answer":"参考答案要点","score":{score}}]',
+    "single": '生成{count}道单选题，每题4个选项(A/B/C/D)，标注正确答案。输出JSON数组：[{{"stem":"题干","options":["选项A","选项B","选项C","选项D"],"answer":"A","score":{score}}}]',
+    "multiple": '生成{count}道多选题，每题4个选项，答案可能有2-4个。输出JSON数组：[{{"stem":"题干","options":["选项A","选项B","选项C","选项D"],"answer":"ABD","score":{score}}}]',
+    "judge": '生成{count}道判断题，答案只有true或false。输出JSON数组：[{{"stem":"题干","answer":true,"score":{score}}}]',
+    "fill": '生成{count}道填空题，答案是简短关键词。输出JSON数组：[{{"stem":"题干（用____表示空）","answer":"参考答案","score":{score}}}]',
+    "essay": '生成{count}道简答题，给参考答案要点。输出JSON数组：[{{"stem":"题干","answer":"参考答案要点","score":{score}}}]',
 }
 
 
@@ -92,7 +93,6 @@ async def gen_question(body: GenQuestionReq, req: Request):
         + "。只输出 JSON 数组，不要任何解释文字。"
     )
 
-    from openai import AsyncOpenAI
     llm = AsyncOpenAI(
         base_url=settings.llm_base_url,
         api_key=settings.llm_api_key,

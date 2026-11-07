@@ -54,6 +54,15 @@ services:
     # 文档预览会拉起 LibreOffice，留 320M 避免 OOM
     mem_limit: 320m
     memswap_limit: 768m
+    # 常驻下限只压到 96M：这台机器上 learningplatform 优先级最低（Go 服务，并发压力小），
+    # 内存紧张时让内核优先回收它，把热内存留给 videonest 和共享 MySQL。
+    # 320M 的上限不动——LibreOffice 转换那一下是真的需要。
+    mem_reservation: 96m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "2"
     networks: [default, shared]
 
   lp-frontend:
@@ -70,6 +79,11 @@ services:
       # 覆盖镜像里的 default.conf：后端服务名改成 lp-backend
       - ./deploy/server/nginx/lp.conf:/etc/nginx/conf.d/default.conf:ro
     mem_limit: 64m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "2"
     networks: [default]
 
 networks:

@@ -5,16 +5,17 @@ P0 修复：
 - 解析容错：正则提取数字，兼容 "85分"/"85.0" 等格式
 - 解析失败不回调，进人工队列（绝不写 0 分进成绩册）
 - time.sleep 改 asyncio.sleep，不阻塞事件循环
+- Redis 客户端改异步，brpop/lpush 全部 await
 """
 import json
 import re
 import asyncio
 import httpx
-import redis
+import redis.asyncio as aioredis
 from openai import AsyncOpenAI
 from app.core.config import settings
 
-_r = redis.from_url(settings.redis_url, decode_responses=True)
+_r = aioredis.from_url(settings.redis_url, decode_responses=True)
 _llm = AsyncOpenAI(
     base_url=settings.llm_base_url,
     api_key=settings.llm_api_key,
@@ -55,7 +56,10 @@ def extract_score(raw) -> int:
 
 
 def parse_llm_output(text: str, max_score: int = 100) -> dict:
-    """从 LLM 输出中提取 JSON，失败时返回 None（不回调，进人工队列）。"""
+    """从 LLM 输出中提取 JSON。
+    成功：返回完整批改结果，parseOk=True。
+    失败：返回 score=0 + comment 提示，parseOk=False，调用方据此进人工队列。
+    """
     try:
         start = text.index("{")
         end = text.rindex("}") + 1
@@ -72,8 +76,14 @@ def parse_llm_output(text: str, max_score: int = 100) -> dict:
             "parseOk": True,
         }
     except Exception as e:
-        # 解析失败：返回标记，不写 0 分，不回调
+        # 解析失败：返回 score=0 + comment 标记，parseOk=False
+        # 调用方检查 parseOk=False 时不回调 Go，进人工队列
         return {
+            "score": 0,
+            "maxScore": max_score,
+            "comment": f"AI批改失败，转人工: 解析失败",
+            "errorPoints": [],
+            "suggestion": "",
             "parseOk": False,
             "error": f"解析失败: {e}",
             "raw": text[:200],
@@ -120,7 +130,7 @@ async def handle_task(task: dict):
         # 解析失败：不回调，进人工队列
         if not result.get("parseOk"):
             print(f"[grade_worker] 解析失败，进人工队列: {task.get('taskId')}")
-            _r.lpush("ai:grade:manual", json.dumps({
+            await _r.lpush("ai:grade:manual", json.dumps({
                 "task": task, "error": result.get("error"), "raw": result.get("raw")
             }, ensure_ascii=False))
             return
@@ -133,19 +143,20 @@ async def handle_task(task: dict):
         if retry < MAX_RETRY:
             task["retry"] = retry + 1
             await asyncio.sleep(2)  # 不阻塞事件循环
-            _r.lpush(settings.grade_queue, json.dumps(task, ensure_ascii=False))
+            await _r.lpush(settings.grade_queue, json.dumps(task, ensure_ascii=False))
         else:
-            _r.lpush("ai:grade:dead", json.dumps({
-                "task": task, "error": str(e), "failedAt": asyncio.get_event_loop().time()
+            loop = asyncio.get_running_loop()
+            await _r.lpush("ai:grade:dead", json.dumps({
+                "task": task, "error": str(e), "failedAt": loop.time()
             }, ensure_ascii=False))
             print(f"[grade_worker] 任务进入死信队列: {task.get('taskId')}")
 
 
 async def consume_loop():
-    """后台协程：阻塞式 BRPOP 消费。"""
+    """后台协程：异步 BRPOP 消费。"""
     print("[grade_worker] 启动 AI 批改消费者...")
     while True:
-        item = _r.brpop(settings.grade_queue, timeout=0)
+        item = await _r.brpop(settings.grade_queue, timeout=0)
         if not item:
             continue
         try:

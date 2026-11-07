@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional, List
 import httpx
+from openai import AsyncOpenAI
 
 from app.core.config import settings
 
@@ -98,7 +99,6 @@ async def summarize(body: SummaryReq, req: Request):
     prompt = SUMMARY_PROMPT.format(content=materials[:4000])
 
     try:
-        from openai import AsyncOpenAI
         llm = AsyncOpenAI(
             base_url=settings.llm_base_url,
             api_key=settings.llm_api_key,
@@ -111,19 +111,20 @@ async def summarize(body: SummaryReq, req: Request):
         )
         text = resp.choices[0].message.content or ""
 
-        # 尝试解析 JSON，失败降级为纯文本
+        # 尝试解析 JSON，失败降级为纯文本字符串
         import json
         try:
             start = text.index("{")
             end = text.rindex("}") + 1
-            result = json.loads(text[start:end])
+            summary = json.loads(text[start:end])
         except Exception:
-            result = {"mastered": [], "weak": [], "suggestions": [], "sources": [], "raw_text": text}
+            summary = text  # 解析失败直接返回原始文本，前端可直接展示
 
         return {
-            "summary": result,
+            "summary": summary,
             "course_id": body.course_id,
             "truncated": truncated,
+            "material_length": len(materials),
         }
     except Exception as e:
         # 统一错误信封

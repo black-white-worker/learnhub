@@ -256,6 +256,44 @@ foreach ($relative in $UploadFiles) {
 }
 
 # ---------------------------------------------------------------------
+# 3b) 可选上传：共享中间件的定义与初始化脚本
+# ---------------------------------------------------------------------
+# 这三个文件不属于 lp-backend/lp-frontend 的构建产物，但三个项目都靠它们：
+#   docker-compose.infra.yml      改了 Redis 淘汰策略 / MinIO CORS / 常驻内存下限
+#   init/mysql/01-databases.sql   首次建库
+#   init/mysql/02-app-users.sql   分项目账号（卷已初始化过，需要手动执行一次，见文件头）
+# 只警告不 throw：少了它们应用层照样能部署，别让 infra 文件绑死每次应用部署。
+$OptionalUploadFiles = @(
+    "deploy\server\docker-compose.infra.yml",
+    "deploy\server\bootstrap.sh",
+    "deploy\server\deploy.sh"
+)
+foreach ($relative in $OptionalUploadFiles) {
+    $source = Join-Path $ProjectRoot $relative
+    if (Test-Path -LiteralPath $source) {
+        $destination = Join-Path $Stage $relative
+        New-Item -ItemType Directory -Force -Path (Split-Path $destination) | Out-Null
+        Copy-Item $source $destination -Force
+    }
+    else {
+        Write-Warning "可选文件缺失：$relative（服务器上的共享中间件定义将保持旧版本）"
+    }
+}
+
+$InitSrc = Join-Path $ProjectRoot "deploy\server\init\mysql"
+if (Test-Path -LiteralPath $InitSrc) {
+    $InitDst = Join-Path $Stage "deploy\server\init\mysql"
+    New-Item -ItemType Directory -Force -Path $InitDst | Out-Null
+    Get-ChildItem -LiteralPath $InitSrc -File | ForEach-Object {
+        Copy-Item $_.FullName -Destination (Join-Path $InitDst $_.Name) -Force
+    }
+    Write-Host ("      附带上传 init/mysql 迁移前脚本 {0} 个" -f (Get-ChildItem -LiteralPath $InitSrc -File).Count)
+}
+else {
+    Write-Warning "可选目录缺失：deploy\server\init\mysql（首次建库/建账号脚本不会上传）"
+}
+
+# ---------------------------------------------------------------------
 # 4) 打包 + 上传
 # ---------------------------------------------------------------------
 if ($SkipUpload) {
