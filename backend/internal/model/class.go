@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -69,23 +70,228 @@ func (m *ClassModel) ListAllClasses() ([]*ClassRow, error) {
 	return rows, err
 }
 
-func (m *ClassModel) DeleteClass(id int64) error {
+// DeleteClassStats 删班连带清理掉的数据量，返回给前端做结果回执。
+//
+// 为什么要统计：删班是不可逆操作，光回一句 "ok" 老师不知道自己刚删掉了
+// 多少份作业和成绩。把条数摆出来，至少事后对得上账。
+type DeleteClassStats struct {
+	Members         int64 `json:"members"`
+	Courses         int64 `json:"courses"`
+	Announcements   int64 `json:"announcements"`
+	Assignments     int64 `json:"assignments"`
+	Submissions     int64 `json:"submissions"`
+	Discussions     int64 `json:"discussions"`
+	Replies         int64 `json:"replies"`
+	Signins         int64 `json:"signins"`
+	SigninRecords   int64 `json:"signinRecords"`
+	Exams           int64 `json:"exams"`
+	ExamSubmissions int64 `json:"examSubmissions"`
+	GradeItems      int64 `json:"gradeItems"`
+	Notifications   int64 `json:"notifications"`
+}
+
+// DeleteClass 删除班级并清理所有从属数据。
+//
+// 注意：本项目没有建外键（历史原因，迁移里全是裸 bigint 关联），
+// 所以级联必须在应用层自己写全。改造前这里只删了 members / courses /
+// announcements / classes 四张表，作业提交、考试、讨论、签到、成绩册
+// 全都留在库里成了孤儿数据 —— 成绩册按 class_id 查不到班级就永不展示，
+// 但表体积和后台统计仍然算它们，属于典型的"删了又没删干净"。
+//
+// 顺序：先叶子后根，避免中途失败留下"班级还在但成员没了"的半截状态。
+// 整个过程在一个事务里，任一步失败全部回滚。
+func (m *ClassModel) DeleteClass(id int64) (*DeleteClassStats, error) {
 	ctx := context.Background()
-	return m.conn.TransactCtx(ctx, func(ctx context.Context, s sqlx.Session) error {
-		if _, err := s.ExecCtx(ctx, "DELETE FROM class_members WHERE class_id=?", id); err != nil {
+	stats := &DeleteClassStats{}
+
+	exec := func(s sqlx.Session, table string, query string, args ...interface{}) error {
+		res, err := s.ExecCtx(ctx, query, args...)
+		if err != nil {
 			return err
 		}
-		if _, err := s.ExecCtx(ctx, "DELETE FROM class_courses WHERE class_id=?", id); err != nil {
+		n, err := res.RowsAffected()
+		if err != nil {
 			return err
 		}
-		if _, err := s.ExecCtx(ctx, "DELETE FROM announcements WHERE class_id=?", id); err != nil {
+		switch table {
+		case "members":
+			stats.Members = n
+		case "courses":
+			stats.Courses = n
+		case "announcements":
+			stats.Announcements = n
+		case "assignments":
+			stats.Assignments = n
+		case "submissions":
+			stats.Submissions = n
+		case "discussions":
+			stats.Discussions = n
+		case "replies":
+			stats.Replies = n
+		case "signins":
+			stats.Signins = n
+		case "signinRecords":
+			stats.SigninRecords = n
+		case "exams":
+			stats.Exams = n
+		case "examSubmissions":
+			stats.ExamSubmissions = n
+		case "gradeItems":
+			stats.GradeItems = n
+		case "notifications":
+			stats.Notifications = n
+		}
+		return nil
+	}
+
+	err := m.conn.TransactCtx(ctx, func(ctx context.Context, s sqlx.Session) error {
+		// ---- 讨论：回复 → 主帖 ----
+		if err := exec(s, "replies",
+			"DELETE FROM discussion_replies WHERE discussion_id IN (SELECT id FROM discussions WHERE class_id=?)", id); err != nil {
 			return err
 		}
+		if err := exec(s, "discussions", "DELETE FROM discussions WHERE class_id=?", id); err != nil {
+			return err
+		}
+
+		// ---- 作业：AI 初评 → 提交 → 题目 → 作业 ----
+		if err := exec(s, "",
+			"DELETE FROM assignment_ai_grades WHERE assignment_id IN (SELECT id FROM assignments WHERE class_id=?)", id); err != nil {
+			return err
+		}
+		if err := exec(s, "submissions",
+			"DELETE FROM assignment_submissions WHERE assignment_id IN (SELECT id FROM assignments WHERE class_id=?)", id); err != nil {
+			return err
+		}
+		if err := exec(s, "",
+			"DELETE FROM assignment_questions WHERE assignment_id IN (SELECT id FROM assignments WHERE class_id=?)", id); err != nil {
+			return err
+		}
+		if err := exec(s, "assignments", "DELETE FROM assignments WHERE class_id=?", id); err != nil {
+			return err
+		}
+
+		// ---- 考试：提交 → 题目 → 考试 ----
+		if err := exec(s, "examSubmissions",
+			"DELETE FROM exam_submissions WHERE exam_id IN (SELECT id FROM exams WHERE class_id=?)", id); err != nil {
+			return err
+		}
+		if err := exec(s, "",
+			"DELETE FROM exam_questions WHERE exam_id IN (SELECT id FROM exams WHERE class_id=?)", id); err != nil {
+			return err
+		}
+		if err := exec(s, "exams", "DELETE FROM exams WHERE class_id=?", id); err != nil {
+			return err
+		}
+
+		// ---- 成绩册：分数 → 成绩项 ----
+		if err := exec(s, "",
+			"DELETE FROM grade_scores WHERE item_id IN (SELECT id FROM grade_items WHERE class_id=?)", id); err != nil {
+			return err
+		}
+		if err := exec(s, "gradeItems", "DELETE FROM grade_items WHERE class_id=?", id); err != nil {
+			return err
+		}
+		if err := exec(s, "", "DELETE FROM class_grade_rules WHERE class_id=?", id); err != nil {
+			return err
+		}
+
+		// ---- 签到：记录 → 事件 ----
+		if err := exec(s, "signinRecords",
+			"DELETE FROM signin_records WHERE signin_id IN (SELECT id FROM class_signin WHERE class_id=?)", id); err != nil {
+			return err
+		}
+		if err := exec(s, "signins", "DELETE FROM class_signin WHERE class_id=?", id); err != nil {
+			return err
+		}
+
+		// ---- 班级自身的外围数据 ----
+		if err := exec(s, "", "DELETE FROM class_invitations WHERE class_id=?", id); err != nil {
+			return err
+		}
+		if err := exec(s, "announcements", "DELETE FROM announcements WHERE class_id=?", id); err != nil {
+			return err
+		}
+		if err := exec(s, "courses", "DELETE FROM class_courses WHERE class_id=?", id); err != nil {
+			return err
+		}
+		if err := exec(s, "members", "DELETE FROM class_members WHERE class_id=?", id); err != nil {
+			return err
+		}
+
+		// 站内消息按跳转地址清：link_url 是 "/class/12" 这类字符串，没有 class_id 列。
+		// 必须限定三种精确形态，不能用 LIKE '/class/12%' —— 那会连 /class/120 一起删掉。
+		if err := exec(s, "notifications",
+			"DELETE FROM notifications WHERE link_url=? OR link_url LIKE ? OR link_url LIKE ?",
+			fmt.Sprintf("/class/%d", id),
+			fmt.Sprintf("/class/%d/%%", id),
+			fmt.Sprintf("/class/%d?%%", id)); err != nil {
+			return err
+		}
+
 		if _, err := s.ExecCtx(ctx, "DELETE FROM classes WHERE id=?", id); err != nil {
 			return err
 		}
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
+	return stats, nil
+}
+
+// AdminClassRow 管理员视角的班级行：班级基本信息 + 规模统计。
+//
+// 统计字段用相关子查询而不是 JOIN + GROUP BY：
+// 一个班可能有几百条提交，JOIN 会把结果集乘起来再聚合，
+// 而管理页一次最多几十个班，子查询走 idx_class 反而更稳。
+type AdminClassRow struct {
+	Id              int64     `db:"id" json:"id"`
+	Name            string    `db:"name" json:"name"`
+	Grade           string    `db:"grade" json:"grade"`
+	Major           string    `db:"major" json:"major"`
+	HeadTeacherId   int64     `db:"head_teacher_id" json:"headTeacherId"`
+	HeadTeacherName string    `db:"head_teacher_name" json:"headTeacherName"`
+	CreatedBy       string    `db:"created_by" json:"createdBy"`
+	CreatedAt       time.Time `db:"created_at" json:"createdAt"`
+	MemberCount     int64     `db:"member_count" json:"memberCount"`
+	StudentCount    int64     `db:"student_count" json:"studentCount"`
+	CourseCount     int64     `db:"course_count" json:"courseCount"`
+	AssignmentCount int64     `db:"assignment_count" json:"assignmentCount"`
+	ExamCount       int64     `db:"exam_count" json:"examCount"`
+}
+
+// ListAdminClasses 管理员班级总览（含规模统计）。
+func (m *ClassModel) ListAdminClasses() ([]*AdminClassRow, error) {
+	var rows []*AdminClassRow
+	err := m.conn.QueryRowsCtx(context.Background(), &rows,
+		`SELECT c.id, c.name, c.grade, c.major, c.head_teacher_id, c.created_by, c.created_at,
+		        COALESCE(NULLIF(u.nickname, ''), u.username, '') AS head_teacher_name,
+		        (SELECT COUNT(*) FROM class_members cm WHERE cm.class_id=c.id) AS member_count,
+		        (SELECT COUNT(*) FROM class_members cm WHERE cm.class_id=c.id AND cm.role='student') AS student_count,
+		        (SELECT COUNT(*) FROM class_courses cc WHERE cc.class_id=c.id) AS course_count,
+		        (SELECT COUNT(*) FROM assignments a WHERE a.class_id=c.id) AS assignment_count,
+		        (SELECT COUNT(*) FROM exams e WHERE e.class_id=c.id) AS exam_count
+		 FROM classes c LEFT JOIN users u ON u.id=c.head_teacher_id
+		 ORDER BY c.id DESC`)
+	return rows, err
+}
+
+// UpdateClassInfo 管理员修改班级基本信息（名称/年级/专业）。
+//
+// 不在这里处理班主任变更：改 head_teacher_id 必须同步 class_members.role，
+// 属于"成员管理"而不是"改个名字"，混进同一个接口最容易出现
+// "换了班主任但旧班主任还在老师列表里"的脏数据。
+func (m *ClassModel) UpdateClassInfo(id int64, name, grade, major string) error {
+	_, err := m.conn.ExecCtx(context.Background(),
+		"UPDATE classes SET name=?, grade=?, major=? WHERE id=?", name, grade, major, id)
+	return err
+}
+
+// IsDuplicateNameErr 判断是否撞了 classes.uk_name（班级名唯一）。
+// MySQL 1062；包一层是为了让 logic 不直接依赖驱动错误码。
+func IsDuplicateNameErr(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "1062")
 }
 
 // ---- class_members 表 ----
@@ -360,12 +566,15 @@ type SubmissionRow struct {
 	UserId       int64  `db:"user_id" json:"userId"`
 	Content      string `db:"content" json:"content"`
 	// Answers 客观题作答 JSON，V11 加列。学生提交时由 logic 层写入。
-	Answers     string        `db:"answers" json:"answers"`
-	FileUrl     string        `db:"file_url" json:"fileUrl"`
-	Score       sql.NullInt64 `db:"score" json:"-"`      // 老师手打分，MarshalJSON 输出数字或 null
-	AutoScore   sql.NullInt64 `db:"auto_score" json:"-"` // 客观题自动判分，MarshalJSON 输出数字或 null
-	Comment     string        `db:"comment" json:"comment"`
-	SubmittedAt time.Time     `db:"submitted_at" json:"submittedAt"`
+	Answers   string        `db:"answers" json:"answers"`
+	FileUrl   string        `db:"file_url" json:"fileUrl"`
+	Score     sql.NullInt64 `db:"score" json:"-"`      // 老师手打分，MarshalJSON 输出数字或 null
+	AutoScore sql.NullInt64 `db:"auto_score" json:"-"` // 客观题自动判分，MarshalJSON 输出数字或 null
+	Comment   string        `db:"comment" json:"comment"`
+	// QuestionScores 老师逐题最终评分 JSON（qid → 分数），MarshalJSON 输出对象或 null。
+	// 空串代表没存过（老数据 / 老师只敲了总分），前端据此决定是否用 AI 初评回填。
+	QuestionScores string    `db:"question_scores" json:"-"`
+	SubmittedAt    time.Time `db:"submitted_at" json:"submittedAt"`
 }
 
 // MarshalJSON 自定义：把 Score/AutoScore 两个 sql.NullInt64 输出成数字或 null，
@@ -373,13 +582,15 @@ type SubmissionRow struct {
 func (s *SubmissionRow) MarshalJSON() ([]byte, error) {
 	type Alias SubmissionRow
 	return json.Marshal(&struct {
-		Score     *int `json:"score"`
-		AutoScore *int `json:"autoScore"`
+		Score          *int            `json:"score"`
+		AutoScore      *int            `json:"autoScore"`
+		QuestionScores json.RawMessage `json:"questionScores"`
 		*Alias
 	}{
-		Score:     nullIntToPtr(s.Score),
-		AutoScore: nullIntToPtr(s.AutoScore),
-		Alias:     (*Alias)(s),
+		Score:          nullIntToPtr(s.Score),
+		AutoScore:      nullIntToPtr(s.AutoScore),
+		QuestionScores: jsonObjectOrNull(s.QuestionScores),
+		Alias:          (*Alias)(s),
 	})
 }
 
@@ -391,6 +602,17 @@ func nullIntToPtr(n sql.NullInt64) *int {
 	return &v
 }
 
+// jsonObjectOrNull 把库里存的 JSON 字符串转成对象输出。
+// 空串（从没存过）和脏数据都输出 null：前端只需判断"有没有逐题分"，
+// 不用再为解析失败写一套兜底；脏数据也不会把整份答卷的响应弄挂。
+func jsonObjectOrNull(s string) json.RawMessage {
+	t := strings.TrimSpace(s)
+	if t == "" || !json.Valid([]byte(t)) {
+		return json.RawMessage("null")
+	}
+	return json.RawMessage(t)
+}
+
 func (m *ClassModel) UpsertSubmission(s *SubmissionRow) error {
 	_, err := m.conn.ExecCtx(context.Background(),
 		`INSERT INTO assignment_submissions (assignment_id, user_id, content, file_url)
@@ -400,9 +622,10 @@ func (m *ClassModel) UpsertSubmission(s *SubmissionRow) error {
 	return err
 }
 
-func (m *ClassModel) GradeSubmission(submissionId int64, score int, comment string) error {
+func (m *ClassModel) GradeSubmission(submissionId int64, score int, comment, questionScores string) error {
 	_, err := m.conn.ExecCtx(context.Background(),
-		"UPDATE assignment_submissions SET score=?, comment=?, graded_at=NOW() WHERE id=?", score, comment, submissionId)
+		"UPDATE assignment_submissions SET score=?, comment=?, question_scores=?, graded_at=NOW() WHERE id=?",
+		score, comment, questionScores, submissionId)
 	return err
 }
 
@@ -410,7 +633,7 @@ func (m *ClassModel) GradeSubmission(submissionId int64, score int, comment stri
 func (m *ClassModel) GetSubmission(submissionId int64) (*SubmissionRow, error) {
 	var s SubmissionRow
 	err := m.conn.QueryRowCtx(context.Background(), &s,
-		"SELECT id, assignment_id, user_id, content, answers, file_url, score, auto_score, comment, submitted_at FROM assignment_submissions WHERE id=?",
+		"SELECT id, assignment_id, user_id, content, answers, file_url, score, auto_score, comment, question_scores, submitted_at FROM assignment_submissions WHERE id=?",
 		submissionId)
 	if err != nil {
 		return nil, err
@@ -421,14 +644,14 @@ func (m *ClassModel) GetSubmission(submissionId int64) (*SubmissionRow, error) {
 func (m *ClassModel) ListSubmissions(assignmentId int64) ([]*SubmissionRow, error) {
 	var rows []*SubmissionRow
 	err := m.conn.QueryRowsCtx(context.Background(), &rows,
-		"SELECT id, assignment_id, user_id, content, answers, file_url, score, auto_score, comment, submitted_at FROM assignment_submissions WHERE assignment_id=? ORDER BY submitted_at DESC", assignmentId)
+		"SELECT id, assignment_id, user_id, content, answers, file_url, score, auto_score, comment, question_scores, submitted_at FROM assignment_submissions WHERE assignment_id=? ORDER BY submitted_at DESC", assignmentId)
 	return rows, err
 }
 
 func (m *ClassModel) GetMySubmission(assignmentId, userId int64) (*SubmissionRow, error) {
 	var s SubmissionRow
 	err := m.conn.QueryRowCtx(context.Background(), &s,
-		"SELECT id, assignment_id, user_id, content, answers, file_url, score, auto_score, comment, submitted_at FROM assignment_submissions WHERE assignment_id=? AND user_id=?",
+		"SELECT id, assignment_id, user_id, content, answers, file_url, score, auto_score, comment, question_scores, submitted_at FROM assignment_submissions WHERE assignment_id=? AND user_id=?",
 		assignmentId, userId)
 	if err != nil {
 		return nil, err

@@ -71,9 +71,9 @@ func (f *fakeOss) RemoveObject(ctx context.Context, objectName string) error {
 
 func (f *fakeOss) ListObjects(ctx context.Context, prefix string) ([]oss.ObjectInfo, error) {
 	infos := make([]oss.ObjectInfo, 0)
-	for name := range f.objects {
+	for name, data := range f.objects {
 		if strings.HasPrefix(name, prefix) {
-			infos = append(infos, oss.ObjectInfo{Name: name, LastModified: f.createdAt[name]})
+			infos = append(infos, oss.ObjectInfo{Name: name, Size: int64(len(data)), LastModified: f.createdAt[name]})
 		}
 	}
 	return infos, nil

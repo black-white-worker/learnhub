@@ -38,7 +38,7 @@ func (l *CourseDetailLogic) Detail(req *course.CourseDetailRequest, actor *model
 
 	c, err := course.Store.GetCourse(req.Id)
 	if err != nil {
-		return nil, course.ErrNotFound("课程不存在")
+		return nil, course.CourseLookupError(req.Id, err)
 	}
 
 	access := course.ResolveMediaAccess(l.svcCtx, actor, c)

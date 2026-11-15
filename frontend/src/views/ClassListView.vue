@@ -7,6 +7,8 @@
         <el-button type="success" @click="doJoin">加入班级</el-button>
         <!-- 只有老师/管理员能创建班级，学生账号不显示入口（后端 /api/class/create 也会拦截） -->
         <el-button v-if="canCreateClass" type="primary" @click="showCreate = true">创建班级</el-button>
+        <!-- 管理员不在 class_members 里，「我的班级」是空的，给一条通往班级管理的路 -->
+        <el-button v-if="isAdmin" @click="$router.push('/admin/classes')">班级管理</el-button>
       </div>
     </div>
 
@@ -50,6 +52,7 @@ const canCreateClass = computed(() => {
   const role = localStorage.getItem('role')
   return role === 'teacher' || role === 'admin'
 })
+const isAdmin = computed(() => localStorage.getItem('role') === 'admin')
 
 async function load() {
   loading.value = true

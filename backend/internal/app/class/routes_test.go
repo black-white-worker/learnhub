@@ -162,6 +162,30 @@ func TestAssignmentMarshal_NoDeadline(t *testing.T) {
 	}
 }
 
+// ===== 退班规则：QuitDenyReason =====
+
+// 用例：只有学生能主动退班；老师退班会让班级没人管，管理员本来就不在成员表里
+func TestQuitDenyReason(t *testing.T) {
+	cases := []struct {
+		role      string
+		wantAllow bool
+	}{
+		{"student", true},
+		{"teacher", false},
+		{"admin", false},
+		{"", true}, // 不在班里：RequireClassMember 会先拒绝，这里不额外拦
+	}
+	for _, c := range cases {
+		reason := QuitDenyReason(c.role)
+		if c.wantAllow && reason != "" {
+			t.Fatalf("角色 %q 应允许退出，实际拒绝：%s", c.role, reason)
+		}
+		if !c.wantAllow && reason == "" {
+			t.Fatalf("角色 %q 应拒绝退出，却放行了", c.role)
+		}
+	}
+}
+
 // 用例：设了截止时间 → 输出 "YYYY-MM-DD HH:mm" 格式字符串，而不是 {Time,Valid} 对象
 func TestAssignmentMarshal_WithDeadline(t *testing.T) {
 	tm := time.Date(2026, 10, 25, 20, 0, 0, 0, time.UTC)

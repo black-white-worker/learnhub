@@ -1,0 +1,16 @@
+# 密钥绝不进镜像：Dockerfile 里是 COPY . .，没有这个文件会把 .env 一起打进去
+.env
+.env.*
+!.env.example
+
+# 本地数据与缓存（Chroma 数据在运行时挂卷，不该烘焙进镜像）
+data/
+.pytest_cache/
+.venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.log
+
+# 测试不需要在容器里跑，减小镜像体积
+tests/

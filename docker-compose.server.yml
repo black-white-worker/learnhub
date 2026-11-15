@@ -35,13 +35,17 @@ services:
       REDIS_HOST: redis:6379
       REDIS_PASS: ${REDIS_PASSWORD}
       MINIO_ENDPOINT: minio:9000
-      # 浏览器拿到的对象地址：公网 IP + 共享 MinIO 的 9010
-      MINIO_PUBLIC_ENDPOINT: ${PUBLIC_HOST}:9010
+      # 浏览器拿到的对象地址：公网 IP + 本栈独立 MinIO 的 9012（9010 已让给 videonest 保旧 URL）
+      MINIO_PUBLIC_ENDPOINT: ${PUBLIC_HOST}:${MINIO_API_PORT:-9012}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
       MINIO_BUCKET: ${MINIO_BUCKET}
       MINIO_PRIVATE: ${MINIO_PRIVATE:-true}
       TZ: Asia/Shanghai
+      # AI 子服务：lp-ai 没起（没开 --profile ai）时解析不到服务名，
+      # Go 代理会统一回 503「AI 服务暂时不可用」，其余功能不受影响。
+      AI_SERVICE_URL: http://lp-ai:8000
+      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN}
     ports:
       # 只给宿主机 curl 用，公网走前端 nginx 的 /api
       - "127.0.0.1:8888:8888"
@@ -86,8 +90,89 @@ services:
         max-file: "2"
     networks: [default]
 
+  # =====================================================================
+  # AI 模块（可选，默认不启动）
+  #
+  # 为什么挂 profiles=["ai"]：这台机器内存本来就紧（共享 MySQL + videonest），
+  # 再常驻两个 Python 进程是笔固定开销。默认 up -d 的行为保持和改造前一致，
+  # 要用 AI 功能时显式带 profile：
+  #   docker compose -f docker-compose.server.yml --env-file .env.prod --profile ai up -d --build
+  # 停掉：docker compose ... --profile ai stop lp-ai lp-ai-worker
+  #
+  # 进程分工：lp-ai 只跑 HTTP，lp-ai-worker 只消费批改队列（同镜像不同 command）。
+  # 不拆的话一份作业串行调几次 LLM，会把答疑/出题的请求一起拖住。
+  # =====================================================================
+  lp-ai:
+    profiles: ["ai"]
+    build:
+      context: ./ai-service
+    container_name: lp-ai
+    restart: unless-stopped
+    depends_on:
+      lp-backend:
+        # 只保证后端先起来（回调打得通），不把 AI 变成站点的启动前置
+        condition: service_started
+    environment:
+      # redis 在共享网络上，批改队列和会话历史都走它
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      LLM_BASE_URL: https://dashscope.aliyuncs.com/compatible-mode/v1
+      LLM_API_KEY: ${DASHSCOPE_API_KEY}
+      LLM_MODEL: qwen-plus
+      EMBEDDING_BASE_URL: https://dashscope.aliyuncs.com/compatible-mode/v1
+      EMBEDDING_MODEL: text-embedding-v3
+      # 批改结果回调 Go 的地址（容器网络内的服务名）
+      GO_CALLBACK_BASE: http://lp-backend:8888
+      # 和 lp-backend 的 AI_INTERNAL_TOKEN 必须同一个值，不一致就全是 403
+      INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN}
+      TZ: Asia/Shanghai
+    # 只在容器网络内可达，公网流量一律经 Go 代理
+    expose:
+      - "8000"
+    volumes:
+      - lp-ai-chroma:/app/data
+    mem_limit: 512m
+    memswap_limit: 768m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "2"
+    networks: [default, shared]
+
+  lp-ai-worker:
+    profiles: ["ai"]
+    build:
+      context: ./ai-service
+    container_name: lp-ai-worker
+    restart: unless-stopped
+    command: ["python", "-m", "app.tasks.worker"]
+    depends_on:
+      lp-ai:
+        condition: service_started
+    environment:
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      LLM_BASE_URL: https://dashscope.aliyuncs.com/compatible-mode/v1
+      LLM_API_KEY: ${DASHSCOPE_API_KEY}
+      LLM_MODEL: qwen-plus
+      GO_CALLBACK_BASE: http://lp-backend:8888
+      INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN}
+      GRADE_QUEUE: ai:grade:queue
+      TZ: Asia/Shanghai
+    mem_limit: 384m
+    memswap_limit: 640m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "2"
+    networks: [default, shared]
+
 networks:
   default:
   shared:
     external: true
     name: lp-shared
+
+volumes:
+  # 向量库（RAG 答疑用的 Chroma 本地目录）
+  lp-ai-chroma:

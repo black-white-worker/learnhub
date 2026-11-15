@@ -71,7 +71,9 @@ func GradeQueueHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		}
 		pending := 0
 		var nextId int64
+		ids := make([]int64, 0, len(queue))
 		for _, s := range queue {
+			ids = append(ids, s.Id)
 			if !s.Score.Valid {
 				pending++
 				if nextId == 0 {
@@ -79,6 +81,9 @@ func GradeQueueHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 				}
 			}
 		}
+		// AI 初评摘要按 submissionId 单独给一份，不塞进 items：
+		// items 的结构是 model 层的行，加字段要把整条链路（MarshalJSON、前端表格）都改一遍，
+		// 而这里只是 SpeedGrader 的一个参考分数。
 		httpx.WriteJson(w, http.StatusOK, map[string]interface{}{
 			"assignment": a,
 			"questions":  questions,
@@ -87,6 +92,8 @@ func GradeQueueHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			"pending":    pending,
 			"nextId":     nextId,
 			"maxScore":   maxScoreOf(a),
+			"aiGrades":   logic.NewAiGradeLogic(r.Context(), svcCtx).SummariesFor(ids),
+			"aiEnabled":  svcCtx.AI.Enabled(),
 		})
 	}
 }

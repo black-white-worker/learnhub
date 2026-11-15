@@ -68,7 +68,9 @@ function coverBg(course) {
         </div>
         <div class="body">
           <h3 class="title">{{ c.name }}</h3>
-          <p class="meta">{{ c.teacher || '未设教师' }} · {{ (c.videos || []).length }} 个视频</p>
+          <!-- 卡片只展示信息：上传视频/讲义统一在详情页的「课程视频 / 课程资源」里做，
+               列表上再摆一排入口属于重复动作，还挤占了封面空间 -->
+          <p class="meta">{{ c.teacher || '未设教师' }} · {{ c.videoCount ?? (c.videos || []).length }} 个视频</p>
         </div>
       </div>
     </div>

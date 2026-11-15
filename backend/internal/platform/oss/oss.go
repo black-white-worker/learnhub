@@ -18,9 +18,10 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
-// ObjectInfo 对象存储中的一个对象信息（孤儿清理扫描用）。
+// ObjectInfo 对象存储中的一个对象信息（孤儿清理扫描、断点续传查分片用）。
 type ObjectInfo struct {
 	Name         string    // 桶内路径，如 course/1/videos/xxx.mp4
+	Size         int64     // 对象字节数（断点续传用它判断某片是否完整）
 	LastModified time.Time // 对象最后修改时间（用于安全窗口判断）
 }
 
@@ -168,7 +169,7 @@ func (m *MinioStore) ListObjects(ctx context.Context, prefix string) ([]ObjectIn
 		if obj.Err != nil {
 			return nil, fmt.Errorf("列出对象 %s 失败: %w", obj.Key, obj.Err)
 		}
-		infos = append(infos, ObjectInfo{Name: obj.Key, LastModified: obj.LastModified})
+		infos = append(infos, ObjectInfo{Name: obj.Key, Size: obj.Size, LastModified: obj.LastModified})
 	}
 	return infos, nil
 }

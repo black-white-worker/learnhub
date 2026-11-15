@@ -4,9 +4,9 @@
 
 - 后端：Go 1.27 + [go-zero](https://go-zero.dev) 1.10，`handler → logic → model` 三层
 - 前端：Vue 3 + Vite + Element Plus
-- 数据库：MySQL 8.4（Flyway 版本化迁移）／缓存与会话：Redis 7
+- 数据库：MySQL 8.4（Flyway 版本化迁移）／缓存与会话：Redis 7／AI 知识库：MongoDB 7（文档·切片·原文件 GridFS）
 - 文件：MinIO（私有桶 + 预签名），ffmpeg 转 faststart，LibreOffice 转 PDF 预览
-- 部署：Docker Compose 一键起（mysql / redis / minio / flyway / backend / frontend）
+- 部署：Docker Compose 一键起（mysql / redis / minio / mongo / flyway / backend / frontend / ai-service / ai-worker）
 
 > 结构目标：这是一个**可演进的单体**。业务按 `internal/app/<context>` 切分，
 > 纯规则沉淀到 `internal/domain`，技术设施收敛到 `internal/platform`，入口在 `cmd/api`，
@@ -75,7 +75,7 @@ frontend/
   src/views/               # 页面（含 SpeedGraderView 逐份批阅）
   src/components/class/    # 班级页签（作业/成绩/签到/公告/讨论）
   tests/                   # node --test 纯逻辑单测
-ai-service/                # 下一步：AI 答疑服务（当前只有契约与环境模板）
+ai-service/                # AI 子服务：答疑 RAG / 按知识点出简体中文专业题（中文权威资料作依据，可选英文通识题库）/ 异步批改 / MongoDB 知识库（见 ai-service/README.md）
 docs/                      # 架构与拆分说明
 ```
 
@@ -95,12 +95,22 @@ if err := actor.Require(authz.CourseDelete, authz.Resource{OwnerUsername: c.Crea
 | 能力 | 谁有 |
 |---|---|
 | `course.edit` / `course.delete` / `course.upload` | **课程创建者本人** 或管理员（其他老师也不行） |
+| `class.delete` | **班级创建者本人** 或管理员（同班其他老师不行） |
 | `class.manage` / `assignment.grade` / `exam.grade` / `grade.view.all` | **班内老师** 或管理员（全局 teacher 但不在班里 → 拒绝） |
 | `course.create` / `class.create` | 全站老师或管理员 |
 | 未声明的能力 | 默认拒绝（fail-closed） |
 
 课程写操作在 HTTP 边界统一过 `authorizeCourse`，考试/班级在 logic 第一行校验。
 **媒体（视频/讲义/预览）不等同于课程写权限**：它按"是不是学习者"判定，见下一节。
+
+班级的删除与退出：
+
+- 删班（`DELETE /api/class/:id`）会级联清理作业与提交、考试与答卷、成绩册、讨论、签到、
+  邀请码、公告、成员关系和指向该班的站内消息，全部在一个事务里；返回各表清理条数。
+- 学生退出（`POST /api/class/:id/quit`）只删 `class_members` 一行，**已交作业与成绩保留**；
+  老师与管理员不能走这条路（老师的正解是删班或由管理员处理）。
+- 管理员在 `/admin/classes` 看全部班级（含成员/课程/作业/考试统计）、改名称年级专业、
+  管理成员、删班。
 
 ---
 
@@ -246,7 +256,13 @@ CI 用 service containers 真跑，见 `.github/workflows/ci.yml`。
 
 ## 已知限制 / 后续方向
 
-1. **AI 模块**：`ai-service/` 目前只有契约与环境模板，计划先做答疑、再做作业初评（HTTP 回调主服务）。
+1. **AI 模块**：答疑 RAG / 出题 / 异步批改与 MongoDB 知识库已落地（`ai-service/README.md`）；
+   讲义上传成功后自动灌库、删除后自动清理索引（`/api/ai/kb/ingest`、`/api/ai/kb/purge`），
+   灌库取数与答疑兜底都走课程资料清单 `GET /api/internal/course/:courseId/kb-manifest`
+   （与课程详情页同一份讲义 + 视频数据，不再有独立的「AI 资料」入口）；
+   手动 `scripts/ingest.py` 仅用于回填历史课程；
+   剩余待补：视频转写 STT（现在只索引视频标题）、老式 `.doc/.ppt` 与扫描件 OCR，
+   均由 `kb_documents.status=fallback` 如实标注。
 2. **视频直传**：分片直传接口（init/sign/complete）已实现，前端仍走 Go 中转；下一步切到浏览器直传 MinIO。
 3. **数据层**：暂无外键与软删除；删除课程依赖应用层事务 + 孤儿清理，跨服务时要改成事件。
 4. **观测**：已有 request id 与健康检查；下一步接 go-zero 的 Prometheus 指标、慢查询日志与告警。

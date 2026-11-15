@@ -1,6 +1,11 @@
 package course
 
-import "testing"
+import (
+	"os"
+	"strconv"
+	"strings"
+	"testing"
+)
 
 // 图片魔数校验用例：覆盖 JPEG / PNG / GIF 与非法文件。
 func TestCheckImageMagic(t *testing.T) {
@@ -67,4 +72,46 @@ func TestContentTypeByExt(t *testing.T) {
 			t.Fatalf("ContentTypeByExt(%s) = %s, want %s", tc.ext, got, tc.want)
 		}
 	}
+}
+
+// 单文件硬上限 800MB：未配置时取默认值，配置显式给值时以配置为准。
+// 前端 videoUpload.js 的 MAX_FILE_BYTES 同样是 800MB，改一边必须改另一边。
+func TestEffectiveMaxVideoBytes(t *testing.T) {
+	ctx := newTestSvcCtx()
+	ctx.Config.Upload.MaxVideoBytes = 0
+	if got := EffectiveMaxVideoBytes(ctx); got != 800<<20 {
+		t.Fatalf("默认单文件上限 = %d 字节，期望 %d（800MB）", got, int64(800<<20))
+	}
+	ctx.Config.Upload.MaxVideoBytes = 300 << 20
+	if got := EffectiveMaxVideoBytes(ctx); got != 300<<20 {
+		t.Fatalf("配置了 300MB 却返回 %d，配置没生效", got)
+	}
+}
+
+// 部署用的 yaml 必须和代码默认值一致：只改代码不改配置，
+// 线上会继续按旧上限放行/拒绝，而且这种漂移在本地跑测试时看不出来。
+func TestUploadYamlVideoLimitMatchesDefault(t *testing.T) {
+	raw, err := os.ReadFile("../../../etc/learningplatform-api.yaml")
+	if err != nil {
+		t.Fatalf("读不到部署配置: %v", err)
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "MaxVideoBytes:") {
+			continue
+		}
+		fields := strings.Fields(strings.TrimPrefix(line, "MaxVideoBytes:"))
+		if len(fields) == 0 {
+			t.Fatal("MaxVideoBytes 没有值")
+		}
+		n, err := strconv.ParseInt(fields[0], 10, 64)
+		if err != nil {
+			t.Fatalf("MaxVideoBytes 不是纯数字（环境变量占位符会让上限失效）: %v", err)
+		}
+		if n != defaultMaxVideoBytes {
+			t.Fatalf("yaml 上限 %d 与代码默认值 %d 不一致", n, defaultMaxVideoBytes)
+		}
+		return
+	}
+	t.Fatal("部署配置里没有 MaxVideoBytes")
 }

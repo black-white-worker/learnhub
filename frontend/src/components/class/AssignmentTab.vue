@@ -98,7 +98,7 @@
           <el-table-column prop="autoScore" label="客观题自动分" width="120" />
           <el-table-column label="总分" width="100">
             <template #default="{ row }">
-              {{ (row.autoScore || 0) + (row._grade || 0) }}
+              {{ displayAssignmentScore(row) }}
             </template>
           </el-table-column>
           <el-table-column label="状态" width="100">
@@ -152,7 +152,7 @@
       <div v-if="currentSubmission" class="paper">
         <div class="paper-head">
           <span>客观题自动分：<b>{{ currentSubmission.autoScore || 0 }}</b></span>
-          <span style="margin-left:20px">总分：<b>{{ (currentSubmission.autoScore || 0) + (currentSubmission._grade || 0) }}</b></span>
+          <span style="margin-left:20px">总分：<b>{{ displayAssignmentScore(currentSubmission) }}</b></span>
           <a v-if="currentSubmission.fileUrl" :href="currentSubmission.fileUrl" target="_blank" style="margin-left:20px">查看附件</a>
         </div>
 
@@ -163,31 +163,32 @@
             <b>{{ i + 1 }}. {{ q.stem }}</b>
             <span class="paper-q-score">（{{ q.score }}分）</span>
             <el-tag v-if="q.type === 'single'" size="small" type="info" style="margin-left:8px">单选</el-tag>
+            <el-tag v-else-if="q.type === 'multiple'" size="small" type="info" style="margin-left:8px">多选</el-tag>
             <el-tag v-else-if="q.type === 'judge'" size="small" type="info" style="margin-left:8px">判断</el-tag>
+            <el-tag v-else-if="q.type === 'fileupload'" size="small" type="info" style="margin-left:8px">附件</el-tag>
             <el-tag v-else size="small" type="warning" style="margin-left:8px">主观</el-tag>
           </div>
 
           <div class="paper-q-answer">
-            <template v-if="q.type === 'single'">
+            <template v-if="q.type === 'single' || q.type === 'multiple'">
               学生答案：<b>{{ paperAnswer(q.id) || '未答' }}</b>
               <span style="color:#999;margin-left:12px">正确答案：{{ q.answer }}</span>
-              <el-tag v-if="paperAnswer(q.id) === q.answer" type="success" size="small" style="margin-left:8px">√</el-tag>
-              <el-tag v-else type="danger" size="small" style="margin-left:8px">×</el-tag>
+              <el-tag v-if="objectiveVerdict(paperAnswer(q.id), q.answer, q.type) === 'correct'" type="success" size="small" style="margin-left:8px">✓ 答对</el-tag>
+              <el-tag v-else-if="objectiveVerdict(paperAnswer(q.id), q.answer, q.type) === 'wrong'" type="danger" size="small" style="margin-left:8px">✗ 答错</el-tag>
             </template>
             <template v-else-if="q.type === 'judge'">
               学生答案：<b>{{ paperAnswer(q.id) === 'true' ? '正确' : paperAnswer(q.id) === 'false' ? '错误' : '未答' }}</b>
               <span style="color:#999;margin-left:12px">正确答案：{{ q.answer === 'true' ? '正确' : '错误' }}</span>
-              <el-tag v-if="paperAnswer(q.id) === q.answer" type="success" size="small" style="margin-left:8px">√</el-tag>
-              <el-tag v-else type="danger" size="small" style="margin-left:8px">×</el-tag>
+              <el-tag v-if="objectiveVerdict(paperAnswer(q.id), q.answer, q.type) === 'correct'" type="success" size="small" style="margin-left:8px">✓ 答对</el-tag>
+              <el-tag v-else-if="objectiveVerdict(paperAnswer(q.id), q.answer, q.type) === 'wrong'" type="danger" size="small" style="margin-left:8px">✗ 答错</el-tag>
+            </template>
+            <template v-else-if="q.type === 'fileupload'">
+              <div style="margin-top:6px">学生作答：</div>
+              <div class="paper-essay-box">{{ paperAnswer(q.id) || '（未作答）' }}</div>
             </template>
             <template v-else>
               <div style="margin-top:6px">学生作答：</div>
               <div class="paper-essay-box">{{ paperAnswer(q.id) || '（未作答）' }}</div>
-              <div style="margin-top:6px">
-                本题得分：
-                <el-input-number v-model="currentSubmission._essayScores[q.id]" :min="0" :max="q.score" size="small" style="width:120px" />
-                <span style="color:#999"> / {{ q.score }}</span>
-              </div>
             </template>
           </div>
         </div>
@@ -199,15 +200,34 @@
           <div class="paper-essay-box">{{ currentSubmission.content }}</div>
         </div>
 
-        <div style="display:flex;gap:12px;align-items:center">
-          <span>评语：</span>
-          <el-input v-model="currentSubmission._comment" placeholder="给学生的评语" style="flex:1" />
+        <!-- 主观题 AI 初评：与逐份批阅（SpeedGrader）同一个面板、同一套接口、同一份建议数据 -->
+        <div v-if="currentSubmission" class="ai-block">
+          <AiGradePanel
+            :submission-id="currentSubmission.id"
+            :questions="hwQuestions"
+            :initial-grade="currentAiGrade()"
+            :max-score="maxScoreOfHw()"
+            :objective-score="currentSubmission.autoScore || 0"
+            :stored-scores="currentSubmission._storedScores"
+            :manual-types="['essay', 'fileupload']"
+            :ai-enabled="queueMetaOf(currentHw && currentHw.id).aiEnabled"
+            @adopt="onAdoptAi"
+            @change="onAiScoresChange"
+          />
         </div>
       </div>
 
       <template #footer>
-        <el-button @click="submissionDialog = false">关闭</el-button>
-        <el-button type="primary" @click="saveGrade">保存批改</el-button>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <span style="white-space:nowrap">总分：</span>
+          <el-input-number v-model="currentSubmission._score" :min="0" :max="maxScoreOfHw()" size="small" style="width:110px" />
+          <span style="color:#999;font-size:12px;white-space:nowrap">/ {{ maxScoreOfHw() }}（含客观题自动分 {{ currentSubmission.autoScore ?? 0 }}）</span>
+          <el-input v-model="currentSubmission._comment" placeholder="给学生的评语" style="flex:1;min-width:160px" />
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:10px">
+          <el-button @click="submissionDialog = false">关闭</el-button>
+          <el-button type="primary" @click="saveGrade">保存批改</el-button>
+        </div>
       </template>
     </el-dialog>
   </div>
@@ -217,6 +237,9 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'
+import { displayAssignmentScore } from '../../utils/assignmentScore.js'
+import { mergeComment, objectiveVerdict } from '../../utils/aiGrade'
+import AiGradePanel from './AiGradePanel.vue'
 
 const props = defineProps({
   classId: { type: [String, Number], required: true },
@@ -246,6 +269,71 @@ const submissions = ref([])
 // 老师端：答卷弹窗
 const submissionDialog = ref(false)
 const currentSubmission = ref(null)
+
+// 答卷弹窗与逐份批阅（SpeedGrader）共用同一份数据口径：
+// 打开弹窗时拉一次 grade-queue，拿 aiEnabled / aiGrades 摘要 / maxScore（按作业缓存）。
+// 这样「查看答卷」里的 AI 初评、满分上限与逐份批阅页完全一致。
+const gradeQueueMeta = ref({}) // hwId → { aiEnabled, aiGrades, maxScore }
+
+async function loadQueueMeta(hwId) {
+  if (gradeQueueMeta.value[hwId]) return gradeQueueMeta.value[hwId]
+  try {
+    const r = await axios.get(`/api/assignment/${hwId}/grade-queue`, auth)
+    const meta = {
+      aiEnabled: Boolean(r.data.aiEnabled),
+      aiGrades: r.data.aiGrades || {},
+      maxScore: r.data.maxScore || currentHw.value?.totalScore || 100,
+    }
+    gradeQueueMeta.value = { ...gradeQueueMeta.value, [hwId]: meta }
+    return meta
+  } catch (e) {
+    // 拉不到队列（权限 / 网络波动）：AI 面板置灰、满分退回作业总分，不打断批改
+    const meta = { aiEnabled: false, aiGrades: {}, maxScore: currentHw.value?.totalScore || 100 }
+    gradeQueueMeta.value = { ...gradeQueueMeta.value, [hwId]: meta }
+    return meta
+  }
+}
+
+function queueMetaOf(hwId) {
+  return gradeQueueMeta.value[hwId] || { aiEnabled: false, aiGrades: {}, maxScore: currentHw.value?.totalScore || 100 }
+}
+
+// 当前查看提交的 AI 初评摘要（与 SpeedGrader 的 aiGradeOf 同构）
+function currentAiGrade() {
+  if (!currentSubmission.value || !currentHw.value) return null
+  const grades = queueMetaOf(currentHw.value.id).aiGrades || {}
+  // Go 的 map[int64] 序列化后 key 是字符串
+  return grades[currentSubmission.value.id] || grades[String(currentSubmission.value.id)] || null
+}
+
+function maxScoreOfHw() {
+  return queueMetaOf(currentHw.value?.id).maxScore
+}
+
+// 「采纳」口径三处统一（答卷弹窗 / SpeedGrader / 考试批改）：
+// 面板按「客观题自动分 + 各主观题最终分」算好总分，这里只落进表单；
+// 逐题分一起存，重新打开这份答卷时才能回填老师改过的每道题。
+function applyAiScores({ score, scores }) {
+  if (!currentSubmission.value) return
+  if (score !== null && score !== undefined) {
+    const max = maxScoreOfHw()
+    currentSubmission.value._score = Math.min(Math.max(Math.round(Number(score) || 0), 0), max)
+  }
+  if (scores) currentSubmission.value._questionScores = { ...scores }
+}
+
+// 老师改任一题的最终分，总分输入框实时跟着重算
+function onAiScoresChange(payload) {
+  applyAiScores(payload)
+}
+
+function onAdoptAi({ score, scores, comment }) {
+  applyAiScores({ score, scores })
+  if (!currentSubmission.value || !comment) return
+  const c = currentSubmission.value
+  c._comment = mergeComment(c._comment, comment, c._aiComment)
+  c._aiComment = comment
+}
 
 // 作业附件上传
 const uploading = ref(false)
@@ -332,8 +420,6 @@ async function loadSubmissions(aid) {
     const r = await axios.get(`/api/assignment/${aid}/submissions`, auth)
     submissions.value = (r.data || []).map(s => ({
       ...s,
-      // 打分表单初始值：已打分用已有分数，否则空
-      _grade: s.score ?? s.autoScore ?? null,
       _comment: s.comment || '',
     }))
   } catch (e) {
@@ -341,18 +427,23 @@ async function loadSubmissions(aid) {
   }
 }
 
-// 老师：从提交记录里提取主观题作答，对照 hwQuestions 找 type=essay 的题
-function essayAnswers(row) {
-  if (!row.answers || !hwQuestions.value?.length) return []
-  let ans = {}
-  try { ans = JSON.parse(row.answers) } catch (e) { return [] }
-  const out = []
-  hwQuestions.value.forEach((q, i) => {
-    if (q.type === 'essay') {
-      out.push({ index: i + 1, stem: q.stem, answer: ans[q.id] || ans[String(q.id)] || '' })
-    }
-  })
-  return out
+// 老师：打开某个学生的答卷。
+// 评分模型与逐份批阅（SpeedGrader）完全一致：一个「总分」输入框（0~满分）
+// + 评语 + AI 初评面板；最终分 = 客观题自动分 + 主观题分，由老师整体落笔。
+function openSubmission(row) {
+  currentSubmission.value = {
+    ...row,
+    // 初始总分：已批过用已批分数，未批用客观题自动分（与 SpeedGrader 同口径）
+    _score: row.score ?? row.autoScore ?? 0,
+    _comment: row.comment || '',
+    // 上次保存的逐题最终评分（打开弹窗时的快照，供 AI 面板回填）。
+    // 与 _questionScores 分开：后者是本次编辑的值，回传给面板会导致"输入一下就被重置"。
+    _storedScores: row.questionScores || {},
+    _questionScores: row.questionScores || {},
+    _aiComment: '',
+  }
+  submissionDialog.value = true
+  loadQueueMeta(currentHw.value.id)
 }
 
 // 老师：添加一道客观题
@@ -392,25 +483,6 @@ async function addQuestion() {
   }
 }
 
-// 老师：打开某个学生的答卷
-function openSubmission(row) {
-  // 初始化每道主观题的手打分
-  const essayScores = {}
-  hwQuestions.value.forEach(q => {
-    if (q.type === 'essay') {
-      // 如果之前打过这道题的分，需要从后端拿；这里先默认 0
-      essayScores[q.id] = 0
-    }
-  })
-  currentSubmission.value = {
-    ...row,
-    _essayScores: essayScores,
-    _grade: row._grade || 0,
-    _comment: row.comment || '',
-  }
-  submissionDialog.value = true
-}
-
 // 从答卷里取某道题的学生答案
 function paperAnswer(qid) {
   if (!currentSubmission.value?.answers) return ''
@@ -419,23 +491,23 @@ function paperAnswer(qid) {
   return ans[qid] ?? ans[String(qid)] ?? ''
 }
 
-// 老师：保存批改（总分=客观自动分+主观手打分合计）
+// 老师：保存批改（评分模型与逐份批阅一致：直接下发整份最终分）
 async function saveGrade() {
   const sub = currentSubmission.value
   if (!sub) return
-  // 主观题手打分合计
-  let essayTotal = 0
-  hwQuestions.value.forEach(q => {
-    if (q.type === 'essay') {
-      essayTotal += Number(sub._essayScores[q.id]) || 0
-    }
-  })
+  const score = Number(sub._score)
+  const maxScore = maxScoreOfHw()
+  if (Number.isNaN(score) || score < 0 || score > maxScore) {
+    ElMessage.warning(`分数需在 0 ~ ${maxScore} 之间`)
+    return
+  }
   try {
     await axios.post(`/api/assignment/submission/${sub.id}/grade`, {
-      score: essayTotal,
+      score,
       comment: sub._comment,
+      questionScores: sub._questionScores || {},
     }, auth)
-    ElMessage.success('批改已保存')
+    ElMessage.success(`批改已保存：${sub.username} ${score} 分`)
     submissionDialog.value = false
     loadSubmissions(currentHw.value.id)
   } catch (e) {
@@ -513,4 +585,5 @@ defineExpose({ reload: loadHw })
 .paper-q-score { color: #909399; font-size: 13px; margin-left: 4px; }
 .paper-q-answer { font-size: 14px; padding-left: 4px; }
 .paper-essay-box { background: #f5f7fa; padding: 10px; border-radius: 4px; margin-top: 4px; white-space: pre-wrap; }
+.ai-block { margin-top: 4px; }
 </style>

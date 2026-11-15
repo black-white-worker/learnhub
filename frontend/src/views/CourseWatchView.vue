@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'
@@ -8,6 +8,7 @@ import {
   saveVideoProgress,
   fetchVideoProgress,
 } from '../api/index.js'
+import { processStatusTag } from '../utils/videoStatus.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -19,6 +20,12 @@ const videoRef = ref(null)
 const video = ref(null)
 const loading = ref(true)
 const saveTimer = ref(null)
+
+// 播放器右上角那枚徽标：转码没完成时学生不该以为视频坏了，
+// 只是拖进度条要等整片下载完
+const statusTag = computed(() =>
+  processStatusTag(video.value || {})
+)
 
 // 笔记
 const notes = ref([])
@@ -190,7 +197,7 @@ onBeforeUnmount(flushProgress)
     <div class="bar">
       <el-button link @click="router.back()">← 返回课程</el-button>
       <span class="title">{{ video ? video.name : '视频播放' }}</span>
-      <el-tag v-if="video && video.faststarted" type="success" size="small">可拖动播放</el-tag>
+      <el-tag v-if="video" :type="statusTag.type" size="small">{{ statusTag.text }}</el-tag>
     </div>
 
     <div class="watch-layout">

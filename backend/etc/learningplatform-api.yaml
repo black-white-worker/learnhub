@@ -1,7 +1,8 @@
 Name: learningplatform-api
 Host: 0.0.0.0
 Port: 8888
-# 单个请求体最大字节数（视频上传用，1GB 兼容一请求传多个 500MB 视频）
+# 单个请求体最大字节数（1GB）：表单上传一次可带多个视频，单个视频上限 800MB；
+# >250MB 的视频前端走分片直传 MinIO，不经过这个请求体限制
 MaxBytes: 1073741824
 
 # MinIO 对象存储（课程封面 / 缩略图 / 视频）
@@ -29,7 +30,7 @@ Minio:
 # 上传大小限制（字节）
 Upload:
   MaxCoverBytes: 5242880      # 封面 5MB
-  MaxVideoBytes: 524288000    # 单个视频 500MB
+  MaxVideoBytes: 838860800    # 单个视频 800MB：全平台单文件硬上限（表单直传与分片 init 都按它校验）
   # 每个用户每日上传总量上限（2GB）：0 = 不限制。
   # 计数在 Redis（upload:quota:YYYYMMDD:userId，48h TTL），用于防"账号被盗后把存储灌满"。
   # 上传失败会归还额度（见 quota.Release），不会因为一次失败永久吃额度。
@@ -48,3 +49,13 @@ Redis:
   Host: "${REDIS_HOST}"
   Type: node
   Pass: "${REDIS_PASS}"
+
+# ===== AI 子服务（ai-service，FastAPI）=====
+# 两个值都由环境变量注入：
+#   AI_SERVICE_URL=http://ai-service:8000      （Docker 内网；本机直跑 http://127.0.0.1:8000）
+#   AI_INTERNAL_TOKEN=xxxx                     （必须与 ai-service 的 INTERNAL_TOKEN 同一个值）
+# 任一为空时 /api/ai/* 返回 503「AI 功能未启用」，其它接口不受影响，
+# 所以没部署 ai-service 的环境不用改配置也能起来。
+AiService:
+  Url: "${AI_SERVICE_URL}"
+  InternalToken: "${AI_INTERNAL_TOKEN}"

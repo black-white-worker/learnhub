@@ -1,0 +1,125 @@
+# =====================================================================
+# learningplatform 独立中间件（从共享 lp-infra 拆出）
+#   MySQL  -> 库 learningplatform（schema 由应用侧 Flyway 迁移）
+#   Redis  -> 本栈专用（应用仍连 db0）
+#   MinIO  -> 桶 learningplatform，公网口挪到 9012（9010 留给 videonest 保旧 URL）
+#
+# 网络 lp-shared 由本 compose 创建（沿用旧名，应用侧 external 接入不变）。
+# 密码复用应用侧 .env.prod。卷命名空间 learningplatform-infra_*，与旧 lp-infra_* 分开。
+#
+# 启动：docker compose -f docker-compose.infra.yml --env-file .env.prod up -d
+# 停止（保留卷）：docker compose -f docker-compose.infra.yml --env-file .env.prod down
+# =====================================================================
+name: learningplatform-infra
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: lp-mysql
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --performance-schema=OFF
+      - --innodb-buffer-pool-size=64M
+      - --max-connections=60
+      - --skip-name-resolve
+      - --default-time-zone=+08:00
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME:-learningplatform}
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    mem_limit: 256m
+    memswap_limit: 512m
+    networks: [shared]
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: lp-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${REDIS_PASSWORD}
+      - --maxmemory
+      - 16mb
+      - --maxmemory-policy
+      - allkeys-lru
+    ports:
+      - "127.0.0.1:6380:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    mem_limit: 48m
+    memswap_limit: 128m
+    networks: [shared]
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: lp-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+      MINIO_API_CORS_ALLOW_ORIGIN: "*"
+      TZ: Asia/Shanghai
+    ports:
+      - "${MINIO_API_PORT:-9012}:9000"               # 公网：lp 预签名直连（从共享 9010 挪来）
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9013}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    mem_limit: 160m
+    memswap_limit: 384m
+    networks: [shared]
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    container_name: lp-minio-init
+    restart: "no"
+    depends_on:
+      minio:
+        condition: service_started
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >
+        until mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}";
+        do sleep 2; done &&
+        mc mb --ignore-existing "local/$${MINIO_BUCKET}" &&
+        echo "lp minio bucket ready"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET:-learningplatform}
+    networks: [shared]
+
+volumes:
+  mysql_data:
+  redis_data:
+  minio_data:
+
+networks:
+  shared:
+    name: lp-shared
+    driver: bridge

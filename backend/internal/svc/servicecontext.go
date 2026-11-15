@@ -6,6 +6,7 @@ package svc
 import (
 	"learningplatform/internal/config"
 	"learningplatform/internal/model"
+	"learningplatform/internal/platform/aiservice"
 	"learningplatform/internal/platform/oss"
 	"learningplatform/internal/platform/quota"
 	"learningplatform/internal/platform/ws"
@@ -37,6 +38,10 @@ type ServiceContext struct {
 	NotificationPrefStore *model.NotificationPrefModel
 	// 实时通知 WebSocket 连接中心（单例，Run 协程常驻整个进程生命周期）
 	NotifHub *ws.Hub
+	// AI 初评结果数据访问层（对应 Flyway V25 的 assignment_ai_grades 表）
+	AIGradeStore *model.AIGradeModel
+	// AI 子服务客户端（批改入队、任务状态查询）。配置不全时所有调用返回 ErrDisabled。
+	AI *aiservice.Client
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -59,9 +64,14 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		// 通知偏好与实时推送
 		NotificationPrefStore: model.NewNotificationPrefModel(conn),
 		NotifHub:              hub,
+		// AI 初评
+		AIGradeStore: model.NewAIGradeModel(conn),
 	}
 	// 上传配额：跟着 Redis 走，上限来自配置（0 表示不限制）
 	sc.Quota = quota.New(sc.Redis, c.Upload.DailyQuotaBytesPerUser)
+
+	// AI 子服务客户端：配置不全时不报错，调用方拿到 ErrDisabled → 前端提示「AI 功能未启用」
+	sc.AI = aiservice.New(c.AiService)
 
 	// MinIO 配置了 Endpoint 才初始化对象存储。
 	// 初始化失败只记日志不 panic（比如启动时 MinIO 还没起来），接口层再报错。

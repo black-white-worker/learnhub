@@ -1,0 +1,82 @@
+{
+  "mode": "simple",
+  "label": "auth_overhead",
+  "args": {
+    "tokens": "/w/tokens.json",
+    "min-free-mb": "40",
+    "out": "/w/raw",
+    "mode": "simple",
+    "label": "auth_overhead",
+    "path": "/api/user/info",
+    "auth": true,
+    "ladder": "8,16,32,64",
+    "secs": "25",
+    "step-gap": "12"
+  },
+  "startedAt": "2026-11-09T16:13:21.197Z",
+  "finishedAt": "2026-11-09T16:13:49.554Z",
+  "steps": [
+    {
+      "concurrency": 8,
+      "startedAtWall": "2026-11-09T16:13:21.924Z",
+      "elapsedSeconds": 26.94,
+      "aborted": null,
+      "memAvailableMbEnd": 110,
+      "samples": [
+        {
+          "atSec": 7,
+          "memAvailableMb": 121,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 12,
+          "memAvailableMb": 120,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 19,
+          "memAvailableMb": 111,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 25,
+          "memAvailableMb": 125,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        }
+      ],
+      "requests": 22515,
+      "successful": 22497,
+      "failed": 18,
+      "successRatePercent": 99.92,
+      "requestsPerSecond": 835.74,
+      "throughputKBps": 72.59,
+      "latencyMs": {
+        "p50": 3.01,
+        "p95": 10.85,
+        "p99": 43.65,
+        "max": 4041.5
+      },
+      "statusCodes": {
+        "200": 22497,
+        "503": 18
+      },
+      "errors": {}
+    }
+  ]
+}

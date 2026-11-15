@@ -12,6 +12,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'
 import { toastError } from '../api/client'
+import AiGradePanel from '../components/class/AiGradePanel.vue'
+import { mergeComment, objectiveVerdict } from '../utils/aiGrade'
 
 const route = useRoute()
 const router = useRouter()
@@ -24,10 +26,16 @@ const questions = ref([])
 const items = ref([])
 const maxScore = ref(100)
 const currentIndex = ref(0)
+// AI 初评摘要：队列接口按 submissionId 一次带回，避免逐份再问一次（N+1）
+const aiGrades = ref({})
+const aiEnabled = ref(false)
 
-// 当前这份的编辑态（分数/评语），切换时从条目里初始化
+// 当前这份的编辑态（分数/评语/逐题分），切换时从条目里初始化
 const scoreInput = ref(null)
 const commentInput = ref('')
+const questionScoresInput = ref({})
+// 上一次由 AI 写入的评语原文：反复采纳时原位替换，不在评语框里堆重复段落
+const aiComment = ref('')
 const commentRef = ref(null)
 
 const COMMENT_TEMPLATES = [
@@ -38,6 +46,34 @@ const COMMENT_TEMPLATES = [
 ]
 
 const current = computed(() => items.value[currentIndex.value] || null)
+// Go 返回的 map[int64] 序列化后是 {"12": {...}}，JS 取属性时数字键会自动转字符串
+function aiGradeOf(id) {
+  return aiGrades.value[id] || null
+}
+const currentAiGrade = computed(() => (current.value ? aiGradeOf(current.value.id) : null))
+
+// 「采纳」只是往输入框里填值：保存仍然是老师的动作，AI 永远不直接写成绩册。
+// 面板已经按「客观题自动分 + 各主观题最终分」算好总分；逐题分一并接住，
+// 保存时随提交上报，下次打开这份答卷才能回填老师改过的每道题。
+function applyAiScores({ score, scores }) {
+  if (score !== null && score !== undefined) {
+    scoreInput.value = Math.min(Math.max(Math.round(Number(score) || 0), 0), maxScore.value)
+  }
+  if (scores) questionScoresInput.value = { ...scores }
+}
+
+// 老师改任一题的最终分，总分输入框实时跟着重算
+function onAiScoresChange(payload) {
+  applyAiScores(payload)
+}
+
+function onAdoptAi({ score, scores, comment }) {
+  applyAiScores({ score, scores })
+  if (comment) {
+    commentInput.value = mergeComment(commentInput.value, comment, aiComment.value)
+    aiComment.value = comment
+  }
+}
 const pendingCount = computed(() => items.value.filter((i) => i.score === null || i.score === undefined).length)
 const gradedCount = computed(() => items.value.length - pendingCount.value)
 const questionMap = computed(() => {
@@ -46,7 +82,9 @@ const questionMap = computed(() => {
   return map
 })
 
-// 把学生作答 JSON 展开成可读列表
+// 把学生作答 JSON 展开成可读列表。
+// 客观题带对错判定（与作业答卷弹窗同一套 objectiveVerdict），
+// 让逐份批阅时不用再翻到作业详情弹窗去核对正确答案。
 const answerList = computed(() => {
   if (!current.value?.answers) return []
   let obj = {}
@@ -57,12 +95,15 @@ const answerList = computed(() => {
   }
   return Object.entries(obj).map(([qid, val]) => {
     const q = questionMap.value[qid]
+    const answer = Array.isArray(val) ? val.join(' / ') : String(val)
     return {
       qid,
       stem: q?.stem || `题目 #${qid}`,
-      answer: Array.isArray(val) ? val.join(' / ') : String(val),
+      answer,
       score: q?.score,
       type: q?.type,
+      verdict: objectiveVerdict(answer, q?.answer, q?.type),
+      standard: ['single', 'multiple', 'judge', 'fill'].includes(q?.type) ? (q?.answer || '') : '',
     }
   })
 })
@@ -71,6 +112,8 @@ function applyCurrentToForm() {
   const item = current.value
   scoreInput.value = item?.score ?? item?.autoScore ?? null
   commentInput.value = item?.comment || ''
+  questionScoresInput.value = item?.questionScores || {}
+  aiComment.value = ''
 }
 
 async function load() {
@@ -81,6 +124,8 @@ async function load() {
     questions.value = r.data.questions || []
     items.value = r.data.items || []
     maxScore.value = r.data.maxScore || 100
+    aiGrades.value = r.data.aiGrades || {}
+    aiEnabled.value = Boolean(r.data.aiEnabled)
     // 打开就定位到第一份未批的
     const firstPending = items.value.findIndex((i) => i.score === null || i.score === undefined)
     currentIndex.value = firstPending >= 0 ? firstPending : 0
@@ -132,10 +177,12 @@ async function save(advance = true) {
     await axios.post(`/api/assignment/submission/${item.id}/grade`, {
       score,
       comment: commentInput.value,
+      questionScores: questionScoresInput.value,
     })
     // 本地更新，不整页刷新
     item.score = score
     item.comment = commentInput.value
+    item.questionScores = { ...questionScoresInput.value }
     ElMessage.success(`已保存：${item.username} ${score} 分`)
     if (advance) nextPending()
   } catch (e) {
@@ -206,6 +253,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           @click="goTo(idx)"
         >
           <span class="name">{{ it.username }}</span>
+          <span class="badge ai" v-if="aiGradeOf(it.id)?.status === 'done'">AI {{ aiGradeOf(it.id).score }}</span>
           <span class="badge" v-if="it.score !== null && it.score !== undefined">{{ it.score }} 分</span>
           <span class="badge pending" v-else>待批</span>
         </div>
@@ -231,8 +279,16 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         <div class="block" v-if="answerList.length">
           <div class="block-title">题目作答</div>
           <div class="qa" v-for="a in answerList" :key="a.qid">
-            <div class="stem">{{ a.stem }}</div>
-            <div class="ans">学生答案：{{ a.answer || '（未作答）' }}</div>
+            <div class="stem">
+              {{ a.stem }}
+              <el-tag v-if="a.verdict === 'correct'" type="success" size="small" style="margin-left:6px">✓ 答对</el-tag>
+              <el-tag v-else-if="a.verdict === 'wrong'" type="danger" size="small" style="margin-left:6px">✗ 答错</el-tag>
+              <el-tag v-else type="warning" size="small" style="margin-left:6px">主观</el-tag>
+            </div>
+            <div class="ans">
+              学生答案：{{ a.answer || '（未作答）' }}
+              <span v-if="a.verdict === 'wrong' && a.standard" class="standard">正确答案：{{ a.standard }}</span>
+            </div>
           </div>
         </div>
 
@@ -275,6 +331,19 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         <el-button type="primary" style="width: 100%; margin-top: 14px" :loading="saving" @click="save(false)">
           保存（留在本份）
         </el-button>
+
+        <AiGradePanel
+          :submission-id="current.id"
+          :questions="questions"
+          :initial-grade="currentAiGrade"
+          :max-score="maxScore"
+          :objective-score="current.autoScore || 0"
+          :stored-scores="current.questionScores"
+          :manual-types="['essay', 'fileupload']"
+          :ai-enabled="aiEnabled"
+          @adopt="onAdoptAi"
+          @change="onAiScoresChange"
+        />
       </aside>
     </div>
 
@@ -357,6 +426,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .badge.pending {
   color: #f59e0b;
 }
+/* AI 建议分：绿色但比正式分数淡，避免和"已批"混淆 */
+.badge.ai {
+  color: #7c3aed;
+}
 .paper {
   min-height: 50vh;
 }
@@ -397,6 +470,11 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .ans {
   color: #0f172a;
   font-weight: 500;
+}
+.standard {
+  color: #64748b;
+  font-weight: 400;
+  margin-left: 10px;
 }
 .hint {
   font-size: 12px;

@@ -2,8 +2,9 @@
 import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute, RouterView } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Reading, Notebook, EditPen, Collection, ArrowDown, User, Bell } from '@element-plus/icons-vue'
+import { Reading, Notebook, EditPen, Collection, ArrowDown, User, Bell, MagicStick } from '@element-plus/icons-vue'
 import { logout as apiLogout, fetchInfo, fetchNotifications } from './api/index.js'
+import { clearAiStatusCache, loadAiStatus } from './api/ai.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -28,8 +29,31 @@ const canCreateCourse = computed(() => userRole.value === 'teacher' || userRole.
 // 只有管理员能看到管理后台入口
 const isAdmin = computed(() => userRole.value === 'admin')
 
+// AI 模块开关：来自 GET /api/ai/status（Go 按配置回答，不查数据库）。
+// 未启用时菜单还在，但点进去给的是"为什么不能用"，而不是一个报错页面。
+const aiStatus = ref({ enabled: false, reason: '', features: [] })
+const aiCanGenerate = computed(() => canCreateCourse.value)
+
+async function refreshAiStatus(force = false) {
+  if (!localStorage.getItem('token')) {
+    aiStatus.value = { enabled: false, reason: '登录后才能使用 AI 功能', features: [] }
+    return
+  }
+  aiStatus.value = await loadAiStatus(force)
+}
+
 // 顶部导航菜单
 const menus = computed(() => {
+  const aiChildren = [
+    { label: 'AI 答疑', path: aiStatus.value.enabled ? '/ai/chat' : '', hint: aiStatus.value.reason },
+  ]
+  if (aiCanGenerate.value) {
+    aiChildren.push({
+      label: 'AI 出题',
+      path: aiStatus.value.enabled ? '/ai/generate' : '',
+      hint: aiStatus.value.reason,
+    })
+  }
   const base = [
     { label: '首页', icon: Reading, path: '/' },
     {
@@ -42,6 +66,7 @@ const menus = computed(() => {
     },
     { label: '班级中心', icon: User, path: '/classes' },
     { label: '考试中心', icon: EditPen, path: '/exams' },
+    { label: 'AI 助手', icon: MagicStick, children: aiChildren },
     ...(isAdmin.value
       ? [{
           label: '管理后台',
@@ -49,6 +74,7 @@ const menus = computed(() => {
           children: [
             { label: '用户管理', path: '/admin/users' },
             { label: '课程管理', path: '/admin/courses' },
+            { label: '班级管理', path: '/admin/classes' },
           ],
         }]
       : []),
@@ -57,24 +83,29 @@ const menus = computed(() => {
 })
 const activeMenu = ref('/')
 
-// 课程中心下拉菜单是否高亮：路由命中创建课程/课程列表任一个就高亮
-const isCourseMenuActive = computed(() =>
-  ['/course/create', '/courses'].includes(route.path)
-)
+// 下拉菜单是否高亮：路由命中它任意一个子项就算（课程中心 / AI 助手 / 管理后台共用）
+function isMenuGroupActive(menu) {
+  return (menu.children || []).some((c) => c.path && c.path === route.path)
+}
 
 function onMenuClick(menu) {
   if (menu.path) {
     activeMenu.value = menu.path
     router.push(menu.path)
   } else {
-    ElMessage.info('「' + menu.label + '」建设中，敬请期待')
+    ElMessage.info(menu.hint || '「' + menu.label + '」建设中，敬请期待')
   }
 }
 
-// 课程中心下拉菜单选中：跳转到对应路由并高亮
-function onMenuCommand(path) {
-  activeMenu.value = path
-  router.push(path)
+// 下拉菜单选中：command 传的是子项对象，因为 AI 未启用时子项没有 path，
+// 只带 path 的话点上去会被 router.push('') 吞掉，看不出是没跳转还是没功能。
+function onMenuCommand(item) {
+  if (!item?.path) {
+    ElMessage.info(item?.hint || '「' + (item?.label || '该功能') + '」建设中，敬请期待')
+    return
+  }
+  activeMenu.value = item.path
+  router.push(item.path)
 }
 
 function goLogin() {
@@ -100,6 +131,7 @@ async function logout() {
   localStorage.removeItem('token')
   localStorage.removeItem('username')
   localStorage.removeItem('role')
+  clearAiStatusCache()
   username.value = ''
   userRole.value = ''
   mustChangePassword.value = false
@@ -150,6 +182,7 @@ const notificationSocket = createNotificationSocket({
 
 onMounted(() => {
   refreshSession()
+  refreshAiStatus()
   loadUnread()
   window.addEventListener('dsh:session-updated', refreshSession)
   notificationSocket.connect() // 实时推送替代轮询
@@ -159,7 +192,12 @@ onUnmounted(() => {
   window.removeEventListener('dsh:session-updated', refreshSession)
 })
 // 登录态变化（登录 / 退出）时重连，确保用的是最新 token
-watch(username, () => { loadUnread(); notificationSocket.disconnect(); notificationSocket.connect() })
+watch(username, () => {
+  loadUnread()
+  refreshAiStatus(true) // 退出后要立刻把菜单切回"未登录"文案
+  notificationSocket.disconnect()
+  notificationSocket.connect()
+})
 </script>
 
 <template>
@@ -174,8 +212,9 @@ watch(username, () => { loadUnread(); notificationSocket.disconnect(); notificat
         <nav class="menu">
           <template v-for="m in menus" :key="m.label">
             <!-- 带 children 的菜单渲染为下拉（课程中心） -->
+            <!-- 带 children 的菜单渲染为下拉（课程中心 / AI 助手 / 管理后台） -->
             <el-dropdown v-if="m.children" trigger="click" @command="onMenuCommand">
-              <div class="menu-item" :class="{ active: isCourseMenuActive }">
+              <div class="menu-item" :class="{ active: isMenuGroupActive(m) }">
                 <el-icon><component :is="m.icon" /></el-icon>
                 <span>{{ m.label }}</span>
                 <el-icon class="menu-arrow"><ArrowDown /></el-icon>
@@ -184,8 +223,8 @@ watch(username, () => { loadUnread(); notificationSocket.disconnect(); notificat
                 <el-dropdown-menu>
                   <el-dropdown-item
                     v-for="c in m.children"
-                    :key="c.path"
-                    :command="c.path"
+                    :key="c.label"
+                    :command="c"
                   >
                     {{ c.label }}
                   </el-dropdown-item>

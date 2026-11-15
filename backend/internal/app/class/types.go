@@ -33,6 +33,11 @@ type ClassDetailResp struct {
 	// MyRole 当前登录用户在本班的角色（teacher/student/admin/空=不在班），
 	// 由 logic 层用 RequireClassMember 的返回值填充，前端不用自己再去 members 里 find。
 	MyRole string `json:"myRole"`
+	// CanDelete / CanQuit 由后端按同一套 authz 规则算好，前端只负责显示按钮。
+	// 前端自己判"我是不是建班人"要同时知道 username 与 createdBy，
+	// 一旦后端判据调整（比如换成班主任也能删），前端就会静默漏掉入口。
+	CanDelete bool `json:"canDelete"`
+	CanQuit   bool `json:"canQuit"`
 }
 
 type JoinClassReq struct {
@@ -41,6 +46,16 @@ type JoinClassReq struct {
 type JoinClassResp struct {
 	ClassId int64  `json:"classId"`
 	Message string `json:"message"`
+}
+
+// ---- 管理员：班级管理 ----
+
+// AdminUpdateClassReq 管理员修改班级基本信息（不含班主任与成员）。
+type AdminUpdateClassReq struct {
+	Id    int64  `json:"id"`
+	Name  string `json:"name"`
+	Grade string `json:"grade"`
+	Major string `json:"major"`
 }
 
 type BindCourseReq struct {
@@ -146,6 +161,9 @@ type SubmitAssignmentResp struct {
 type GradeSubmissionReq struct {
 	Score   int    `json:"score"`
 	Comment string `json:"comment" form:"comment,optional"`
+	// QuestionScores 老师逐题最终评分（qid → 分数），用于重新打开答卷时回填。
+	// 总分仍由 Score 承载：历史数据 / 只敲总分的老师都不受影响。
+	QuestionScores map[string]float64 `json:"questionScores" form:"questionScores,optional"`
 }
 
 type UploadAssignmentResp struct {
@@ -192,4 +210,55 @@ type UpdateUserRoleReq struct {
 type ListGradesResp struct {
 	Rule map[string]int    `json:"rule"`
 	Rows []*model.GradeRow `json:"rows"`
+}
+
+// ---- 主观题 AI 初评 ----
+
+// AiGradeItemResult 单题的 AI 批改结果，和 ai-service worker 回调里的 items 元素同构。
+// Score 用指针：AI 没能给出分数的题要能区分「0 分」和「没批出来」。
+type AiGradeItemResult struct {
+	QuestionId  int64    `json:"questionId"`
+	Score       *int     `json:"score"`
+	MaxScore    int      `json:"maxScore"`
+	Comment     string   `json:"comment"`
+	ErrorPoints []string `json:"errorPoints"`
+	Suggestion  string   `json:"suggestion"`
+	ParseOk     bool     `json:"parseOk"`
+}
+
+// AiGradeCallbackReq ai-service 批改 worker 的回调体。
+// 身份走 X-Internal-Token，body 里的 userId 一律不信。
+type AiGradeCallbackReq struct {
+	TaskId            string              `json:"taskId"`
+	SubmitId          int64               `json:"submitId"`
+	Score             int                 `json:"score"`
+	MaxScore          int                 `json:"maxScore"`
+	Comment           string              `json:"comment"`
+	ParseOk           bool                `json:"parseOk"`
+	Items             []AiGradeItemResult `json:"items"`
+	UnparsedQuestions []int64             `json:"unparsedQuestions"`
+}
+
+// AiGradeView 老师端看到的某份提交的 AI 初评。
+// status：空串=还没发起过，processing=排队/批改中，done=有结果，manual=AI 批不动请人工，failed=失败。
+type AiGradeView struct {
+	SubmissionId int64               `json:"submissionId"`
+	TaskId       string              `json:"taskId"`
+	Status       string              `json:"status"`
+	Score        int                 `json:"score"`
+	MaxScore     int                 `json:"maxScore"`
+	Comment      string              `json:"comment"`
+	Error        string              `json:"error,omitempty"`
+	Items        []AiGradeItemResult `json:"items"`
+	UpdatedAt    string              `json:"updatedAt,omitempty"`
+	// Enabled：AiService 配置是否齐全。false 时前端把「AI 初评」按钮置灰并给出原因。
+	Enabled bool `json:"enabled"`
+	// EssayCount 这份提交里的 subjective 题数，前端用来提示「本份有 N 道主观题」
+	EssayCount int `json:"essayCount"`
+}
+
+// AiGradeTriggerResp 发起批改的返回。
+type AiGradeTriggerResp struct {
+	Message string       `json:"message"`
+	Grade   *AiGradeView `json:"grade"`
 }

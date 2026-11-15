@@ -67,10 +67,12 @@ type ExamSubmissionRow struct {
 	TeacherScore sql.NullInt64 `db:"teacher_score" json:"-"`
 	Comment      string        `db:"comment" json:"comment"`
 	GradedBy     int64         `db:"graded_by" json:"gradedBy"`
-	GradedAt     sql.NullTime  `db:"graded_at" json:"-"`
-	Violations   int           `db:"violations" json:"violations"`
-	StartedAt    sql.NullTime  `db:"started_at" json:"startedAt"`
-	SubmittedAt  time.Time     `db:"submitted_at" json:"submittedAt"`
+	// QuestionScores 老师逐题最终评分 JSON（qid → 分数），MarshalJSON 输出对象或 null
+	QuestionScores string       `db:"question_scores" json:"-"`
+	GradedAt       sql.NullTime `db:"graded_at" json:"-"`
+	Violations     int          `db:"violations" json:"violations"`
+	StartedAt      sql.NullTime `db:"started_at" json:"startedAt"`
+	SubmittedAt    time.Time    `db:"submitted_at" json:"submittedAt"`
 }
 
 // 交卷状态常量（与 V20 迁移里的注释保持一致）。
@@ -90,15 +92,17 @@ func (s *ExamSubmissionRow) MarshalJSON() ([]byte, error) {
 		gradedAt = &v
 	}
 	return json.Marshal(&struct {
-		AutoScore    *int64  `json:"autoScore"`
-		TeacherScore *int64  `json:"teacherScore"`
-		GradedAt     *string `json:"gradedAt"`
+		AutoScore      *int64          `json:"autoScore"`
+		TeacherScore   *int64          `json:"teacherScore"`
+		GradedAt       *string         `json:"gradedAt"`
+		QuestionScores json.RawMessage `json:"questionScores"`
 		*Alias
 	}{
-		AutoScore:    nullInt64Ptr(s.AutoScore),
-		TeacherScore: nullInt64Ptr(s.TeacherScore),
-		GradedAt:     gradedAt,
-		Alias:        (*Alias)(s),
+		AutoScore:      nullInt64Ptr(s.AutoScore),
+		TeacherScore:   nullInt64Ptr(s.TeacherScore),
+		GradedAt:       gradedAt,
+		QuestionScores: jsonObjectOrNull(s.QuestionScores),
+		Alias:          (*Alias)(s),
 	})
 }
 
@@ -325,7 +329,7 @@ func (m *ExamModel) GetMySubmission(examId, userId int64) (*ExamSubmissionRow, e
 	var s ExamSubmissionRow
 	err := m.conn.QueryRowCtx(context.Background(), &s,
 		`SELECT s.id, s.exam_id, s.user_id, u.username, s.answers, s.status, s.auto_score, s.teacher_score,
-		        s.comment, s.graded_by, s.graded_at, s.violations, s.started_at, s.submitted_at
+		        s.comment, s.question_scores, s.graded_by, s.graded_at, s.violations, s.started_at, s.submitted_at
 		   FROM exam_submissions s JOIN users u ON s.user_id=u.id
 		  WHERE s.exam_id=? AND s.user_id=?`, examId, userId)
 	if err == sql.ErrNoRows {
@@ -342,7 +346,7 @@ func (m *ExamModel) GetSubmission(submissionId int64) (*ExamSubmissionRow, error
 	var s ExamSubmissionRow
 	err := m.conn.QueryRowCtx(context.Background(), &s,
 		`SELECT s.id, s.exam_id, s.user_id, u.username, s.answers, s.status, s.auto_score, s.teacher_score,
-		        s.comment, s.graded_by, s.graded_at, s.violations, s.started_at, s.submitted_at
+		        s.comment, s.question_scores, s.graded_by, s.graded_at, s.violations, s.started_at, s.submitted_at
 		   FROM exam_submissions s JOIN users u ON s.user_id=u.id
 		  WHERE s.id=?`, submissionId)
 	if err != nil {
@@ -356,17 +360,17 @@ func (m *ExamModel) ListSubmissions(examId int64) ([]*ExamSubmissionRow, error) 
 	var rows []*ExamSubmissionRow
 	err := m.conn.QueryRowsCtx(context.Background(), &rows,
 		`SELECT s.id, s.exam_id, s.user_id, u.username, s.answers, s.status, s.auto_score, s.teacher_score,
-		        s.comment, s.graded_by, s.graded_at, s.violations, s.started_at, s.submitted_at
+		        s.comment, s.question_scores, s.graded_by, s.graded_at, s.violations, s.started_at, s.submitted_at
 		   FROM exam_submissions s JOIN users u ON s.user_id=u.id
 		  WHERE s.exam_id=? ORDER BY s.submitted_at DESC`, examId)
 	return rows, err
 }
 
 // GradeSubmission 老师手批：写分数 + 批改人 + 批改时间。
-func (m *ExamModel) GradeSubmission(submissionId int64, teacherScore int, comment string, gradedBy int64) error {
+func (m *ExamModel) GradeSubmission(submissionId int64, teacherScore int, comment, questionScores string, gradedBy int64) error {
 	_, err := m.conn.ExecCtx(context.Background(),
-		"UPDATE exam_submissions SET teacher_score=?, comment=?, graded_by=?, graded_at=NOW() WHERE id=?",
-		teacherScore, comment, gradedBy, submissionId)
+		"UPDATE exam_submissions SET teacher_score=?, comment=?, question_scores=?, graded_by=?, graded_at=NOW() WHERE id=?",
+		teacherScore, comment, questionScores, gradedBy, submissionId)
 	return err
 }
 

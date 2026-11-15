@@ -60,6 +60,49 @@ func addNoteHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	}
 }
 
+// summaryNotesHandler GET /api/course/notes/summary/:courseId
+//
+// 笔记模块自己的「整门课笔记」查询：一次取回当前用户在该课程下、跨视频的全部笔记，
+// 按 video_id + 时间点排序。与下面的按视频查询互补，走同一套登录态，
+// 只能读到自己的笔记，不需要任何服务间免检通道。
+//
+// 返回 {"notes":[...], "total":N} 而不是裸数组，方便调用方直接取 notes 字段。
+func summaryNotesHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		u := user.CurrentUser(r)
+		if u == nil {
+			httpx.WriteJson(w, http.StatusUnauthorized, map[string]string{"message": "未登录"})
+			return
+		}
+		uid, err := svcCtx.UserStore.GetIdByUsername(u.Username)
+		if err != nil {
+			httpx.WriteJson(w, 500, map[string]string{"message": "用户不存在"})
+			return
+		}
+		vars := pathvar.Vars(r)
+		courseId, _ := strconv.ParseInt(vars["courseId"], 10, 64)
+		if courseId == 0 {
+			httpx.WriteJson(w, 400, map[string]string{"message": "课程 id 无效"})
+			return
+		}
+		var rows []*VideoNoteRow
+		err = svcCtx.DB.QueryRowsCtx(r.Context(),
+			&rows,
+			`SELECT id, user_id, course_id, video_id, timestamp_seconds AS timestampSeconds, content
+			 FROM video_notes
+			 WHERE user_id=? AND course_id=?
+			 ORDER BY video_id, timestamp_seconds`, uid, courseId)
+		if err != nil && err != sql.ErrNoRows {
+			httpx.WriteJson(w, 500, map[string]string{"message": err.Error()})
+			return
+		}
+		if rows == nil {
+			rows = []*VideoNoteRow{}
+		}
+		httpx.WriteJson(w, 200, map[string]interface{}{"notes": rows, "total": len(rows)})
+	}
+}
+
 // listNotesHandler 查当前用户在某视频下的所有笔记
 func listNotesHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

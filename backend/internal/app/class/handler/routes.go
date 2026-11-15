@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"learningplatform/internal/app/user"
+	"learningplatform/internal/platform/middleware"
 	"learningplatform/internal/svc"
 
 	"github.com/zeromicro/go-zero/rest"
@@ -21,6 +22,8 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 		{Method: http.MethodGet, Path: "/api/class/:id", Handler: classDetailHandler(serverCtx)},
 		{Method: http.MethodDelete, Path: "/api/class/:id", Handler: deleteClassHandler(serverCtx)},
 		{Method: http.MethodPost, Path: "/api/class/join", Handler: joinClassHandler(serverCtx)},
+		// 学生主动退出：只删成员关系，保留已交作业与成绩
+		{Method: http.MethodPost, Path: "/api/class/:id/quit", Handler: quitClassHandler(serverCtx)},
 		{Method: http.MethodGet, Path: "/api/class/:id/members", Handler: listMembersHandler(serverCtx)},
 		{Method: http.MethodDelete, Path: "/api/class/:id/members/:userId", Handler: removeMemberHandler(serverCtx)},
 		{Method: http.MethodPost, Path: "/api/class/:id/courses", Handler: bindCourseHandler(serverCtx)},
@@ -47,6 +50,9 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 		{Method: http.MethodPost, Path: "/api/assignment/upload", Handler: uploadAssignmentFileHandler(serverCtx)},
 		{Method: http.MethodGet, Path: "/api/assignment/:aid/submissions", Handler: listSubmissionsHandler(serverCtx)},
 		{Method: http.MethodPost, Path: "/api/assignment/submission/:sid/grade", Handler: gradeSubmissionHandler(serverCtx)},
+		// 主观题 AI 初评：老师发起 + 老师查看（结果只落建议表，不动成绩册）
+		{Method: http.MethodPost, Path: "/api/assignment/submission/:sid/ai-grade", Handler: aiGradeTriggerHandler(serverCtx)},
+		{Method: http.MethodGet, Path: "/api/assignment/submission/:sid/ai-grade", Handler: aiGradeGetHandler(serverCtx)},
 
 		// 讨论
 		{Method: http.MethodPost, Path: "/api/class/:id/discussion", Handler: createDiscussionHandler(serverCtx)},
@@ -72,6 +78,10 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 		{Method: http.MethodPost, Path: "/api/user/apply-teacher", Handler: applyTeacherHandler(serverCtx)},
 		{Method: http.MethodPost, Path: "/api/admin/users/role", Handler: updateUserRoleHandler(serverCtx)},
 
+		// 管理员：班级管理（列表带统计 / 改基本信息；删除复用 /api/class/:id）
+		{Method: http.MethodGet, Path: "/api/admin/classes", Handler: adminListClassesHandler(serverCtx)},
+		{Method: http.MethodPut, Path: "/api/admin/classes", Handler: adminUpdateClassHandler(serverCtx)},
+
 		// 成绩与学情
 		{Method: http.MethodGet, Path: "/api/class/:id/grades", Handler: listGradesHandler(serverCtx)},
 		// 「我的」聚合：一次 JOIN 返回我所有班级的考试/作业 + 我的提交状态
@@ -90,5 +100,18 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 
 	server.AddRoutes(
 		rest.WithMiddleware(user.NewAuthMiddleware(serverCtx).Handle, routes...),
+	)
+
+	// ai-service 批改 worker 的结果回调：请求里没有用户 JWT，只认 X-Internal-Token。
+	// 单独一组，不和登录态那组混用中间件 —— 混了要么 worker 进不来，要么学生能伪造。
+	server.AddRoutes(
+		rest.WithMiddleware(
+			middleware.NewInternalTokenMiddleware(serverCtx.Config.AiService.InternalToken).Handle,
+			rest.Route{
+				Method:  http.MethodPost,
+				Path:    "/api/assignment/submission/:sid/ai-callback",
+				Handler: aiGradeCallbackHandler(serverCtx),
+			},
+		),
 	)
 }

@@ -1,0 +1,328 @@
+{
+  "mode": "simple",
+  "label": "course_list",
+  "args": {
+    "tokens": "/w/tokens.json",
+    "min-free-mb": "40",
+    "out": "/w/raw",
+    "mode": "simple",
+    "label": "course_list",
+    "path": "/api/course/list?page=1&pageSize=20",
+    "ladder": "8,16,32,64,128",
+    "secs": "30",
+    "step-gap": "15"
+  },
+  "startedAt": "2026-11-09T16:04:26.369Z",
+  "finishedAt": "2026-11-09T16:07:36.855Z",
+  "steps": [
+    {
+      "concurrency": 8,
+      "startedAtWall": "2026-11-09T16:04:26.527Z",
+      "elapsedSeconds": 36.32,
+      "aborted": null,
+      "memAvailableMbEnd": 120,
+      "samples": [
+        {
+          "atSec": 7,
+          "memAvailableMb": 117,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 12,
+          "memAvailableMb": 117,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 19,
+          "memAvailableMb": 91,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 24,
+          "memAvailableMb": 113,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 30,
+          "memAvailableMb": 110,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 36,
+          "memAvailableMb": 121,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        }
+      ],
+      "requests": 5573,
+      "successful": 5549,
+      "failed": 24,
+      "successRatePercent": 99.569,
+      "requestsPerSecond": 153.45,
+      "throughputKBps": 32.97,
+      "latencyMs": {
+        "p50": 2.8,
+        "p95": 18.98,
+        "p99": 771.58,
+        "max": 9057.32
+      },
+      "statusCodes": {
+        "0": 24,
+        "200": 5549
+      },
+      "errors": {
+        "ECONNRESET": 24
+      }
+    },
+    {
+      "concurrency": 16,
+      "startedAtWall": "2026-11-09T16:05:18.866Z",
+      "elapsedSeconds": 35.64,
+      "aborted": null,
+      "memAvailableMbEnd": 93,
+      "samples": [
+        {
+          "atSec": 6,
+          "memAvailableMb": 123,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 12,
+          "memAvailableMb": 117,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 17,
+          "memAvailableMb": 109,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 22,
+          "memAvailableMb": 116,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 32,
+          "memAvailableMb": 107,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        }
+      ],
+      "requests": 70583,
+      "successful": 70567,
+      "failed": 16,
+      "successRatePercent": 99.977,
+      "requestsPerSecond": 1980.22,
+      "throughputKBps": 427.28,
+      "latencyMs": {
+        "p50": 2.86,
+        "p95": 8.29,
+        "p99": 68.07,
+        "max": 8355
+      },
+      "statusCodes": {
+        "0": 16,
+        "200": 70567
+      },
+      "errors": {
+        "ECONNRESET": 16
+      }
+    },
+    {
+      "concurrency": 32,
+      "startedAtWall": "2026-11-09T16:06:12.358Z",
+      "elapsedSeconds": 31.61,
+      "aborted": null,
+      "memAvailableMbEnd": 118,
+      "samples": [
+        {
+          "atSec": 5,
+          "memAvailableMb": 318,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 10,
+          "memAvailableMb": 189,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 15,
+          "memAvailableMb": 218,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 21,
+          "memAvailableMb": 191,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 26,
+          "memAvailableMb": 165,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 32,
+          "memAvailableMb": 122,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        }
+      ],
+      "requests": 62049,
+      "successful": 62049,
+      "failed": 0,
+      "successRatePercent": 100,
+      "requestsPerSecond": 1963.07,
+      "throughputKBps": 423.67,
+      "latencyMs": {
+        "p50": 10.3,
+        "p95": 37.51,
+        "p99": 61.19,
+        "max": 798.24
+      },
+      "statusCodes": {
+        "200": 62049
+      },
+      "errors": {}
+    },
+    {
+      "concurrency": 64,
+      "startedAtWall": "2026-11-09T16:07:00.128Z",
+      "elapsedSeconds": 35.82,
+      "aborted": null,
+      "memAvailableMbEnd": 108,
+      "samples": [
+        {
+          "atSec": 5,
+          "memAvailableMb": 112,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 13,
+          "memAvailableMb": 110,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 20,
+          "memAvailableMb": 105,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 27,
+          "memAvailableMb": 111,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 34,
+          "memAvailableMb": 110,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        }
+      ],
+      "requests": 21820,
+      "successful": 21743,
+      "failed": 77,
+      "successRatePercent": 99.647,
+      "requestsPerSecond": 609.07,
+      "throughputKBps": 130.99,
+      "latencyMs": {
+        "p50": 19.23,
+        "p95": 56.31,
+        "p99": 473.17,
+        "max": 17002.15
+      },
+      "statusCodes": {
+        "0": 76,
+        "200": 21743,
+        "503": 1
+      },
+      "errors": {
+        "Error": 64,
+        "ECONNRESET": 12
+      }
+    }
+  ]
+}

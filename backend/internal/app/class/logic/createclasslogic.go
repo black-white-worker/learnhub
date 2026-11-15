@@ -30,7 +30,8 @@ func (l *CreateClassLogic) CreateClass(req *class.CreateClassReq, cu *class.CtxU
 		return nil, err
 	}
 	if err := l.svcCtx.ClassStore.AddMember(id, cu.Id, "teacher"); err != nil {
-		_ = l.svcCtx.ClassStore.DeleteClass(id)
+		// 回滚半截班级：此时还没有任何作业/成员，DeleteClass 只清空表壳
+		_, _ = l.svcCtx.ClassStore.DeleteClass(id)
 		return nil, &class.BizError{Code: http.StatusInternalServerError, Msg: "加入班级失败：" + err.Error()}
 	}
 	code := class.Rand6Code()

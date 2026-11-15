@@ -55,19 +55,66 @@ export function deleteCourse(id) {
 }
 
 // 上传：courseId 走 query，FormData 只放文件。
-// 超时单独放宽到 10 分钟：500MB 视频在慢网络下远超默认 20 秒。
+// 超时单独放宽到 10 分钟：一次表单可能带多个视频（单个上限 800MB，
+// 但 >250MB 会走分片直传，所以这条请求实际扛的是一批小文件），慢网络下远超默认 20 秒。
 const UPLOAD_TIMEOUT = 10 * 60 * 1000
 
-export function uploadCourseCover(courseId, data) {
-  return request.post('/course/upload/cover', data, { params: { courseId }, timeout: UPLOAD_TIMEOUT })
+export function uploadCourseCover(courseId, data, onProgress) {
+  return request.post('/course/upload/cover', data, {
+    params: { courseId },
+    timeout: UPLOAD_TIMEOUT,
+    onUploadProgress: onProgress,
+  })
 }
 
-export function uploadCourseVideos(courseId, data) {
-  return request.post('/course/upload/videos', data, { params: { courseId }, timeout: UPLOAD_TIMEOUT })
+export function uploadCourseVideos(courseId, data, onProgress) {
+  return request.post('/course/upload/videos', data, {
+    params: { courseId },
+    timeout: UPLOAD_TIMEOUT,
+    onUploadProgress: onProgress,
+  })
 }
 
-export function uploadCourseResource(courseId, data) {
-  return request.post('/course/upload/resource', data, { params: { courseId }, timeout: UPLOAD_TIMEOUT })
+export function uploadCourseResource(courseId, data, onProgress) {
+  return request.post('/course/upload/resource', data, {
+    params: { courseId },
+    timeout: UPLOAD_TIMEOUT,
+    onUploadProgress: onProgress,
+  })
+}
+
+// ===== 大文件分片直传（>250MB，前端直传 MinIO + 断点续传）=====
+//
+// 这一组接口只搬"元信息"，字节流由浏览器直接 PUT 到预签名 URL，
+// 所以除 complete（服务端要合并分片）外都用普通超时。
+const SIGN_TIMEOUT = 60 * 1000
+
+export function initMultipartUpload(data) {
+  return request.post('/course/upload/multipart/init', data, { timeout: SIGN_TIMEOUT })
+}
+
+// data: { uploadId, partNumbers: [1,2,...] } → { parts: [{partNumber, url}], expireIn }
+export function signMultipartParts(data) {
+  return request.post('/course/upload/multipart/sign', data, { timeout: SIGN_TIMEOUT })
+}
+
+// 合并完会立刻返回视频元信息，faststart 由后端队列异步做
+export function completeMultipartUpload(data) {
+  return request.post('/course/upload/multipart/complete', data, { timeout: UPLOAD_TIMEOUT })
+}
+
+export function abortMultipartUpload(data) {
+  return request.post('/course/upload/multipart/abort', data, { timeout: SIGN_TIMEOUT })
+}
+
+// 断点续传查询：返回桶里真实存在的分片（前端不信本地记账）
+export function fetchMultipartUploadStatus(data) {
+  return request.post('/course/upload/multipart/status', data, { timeout: SIGN_TIMEOUT })
+}
+
+// 视频后处理（faststart）失败后人工重新排队
+export function reprocessCourseVideo(courseId, videoId) {
+  return request.post(`/course/video/reprocess/${courseId}/${videoId}`)
 }
 
 // ===== 课程观看 / 资源 =====

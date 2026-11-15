@@ -133,6 +133,10 @@ services:
       MINIO_BUCKET: ${MINIO_BUCKET}
       # 私有桶开关：true 时后端返回预签名 URL（需同时把桶策略改成私有）
       MINIO_PRIVATE: ${MINIO_PRIVATE:-false}
+      # AI 子服务：两个值任一为空，/api/ai/* 直接回 503「AI 功能未启用」，
+      # 不影响站点其余功能（所以没把 ai-service 写进 depends_on）。
+      AI_SERVICE_URL: http://ai-service:8000
+      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN}
     ports:
       - "127.0.0.1:${BACKEND_PORT}:8888"
     healthcheck:
@@ -156,6 +160,8 @@ services:
       - "${HTTP_PORT}:80"
 
   # ===== AI 服务（FastAPI + LangGraph，只在 docker 内网，不对外暴露） =====
+  # 进程分工：ai-service 只跑 HTTP，ai-worker 只消费批改队列。
+  # 拆开是因为批改要串行调几次 LLM（几十秒），跟 API 挤同一个事件循环会把答疑/出题一起拖住。
   ai-service:
     build:
       context: ./ai-service
@@ -168,26 +174,113 @@ services:
         condition: service_started
     environment:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      # ===== 知识库主存储：MongoDB（不再是死配置）=====
       MONGODB_URL: mongodb://mongo:27017
-      # LLM 走通义千问 DashScope 在线 API
+      MONGODB_DB: ai_service
+      MONGODB_ENABLED: "true"
+      # 本地 false：Mongo 没起时自动降级为进程内存储，服务照常能跑；
+      # 上线改 true：连不上直接失败，避免「以为灌进去了其实没有」。
+      MONGODB_STRICT: "false"
+      # 上线认证/副本集/TLS/连接池：在 .env.prod 配好后取消注释即可，源码不留字面量
+      # MONGODB_USERNAME: ${MONGO_ROOT_USER}
+      # MONGODB_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      # MONGODB_AUTH_SOURCE: admin
+      # MONGODB_REPLICA_SET: rs0
+      # MONGODB_TLS: "true"
+      # MONGODB_MAX_POOL_SIZE: 50
+      # MONGODB_MIN_POOL_SIZE: 5
+      # MONGODB_SERVER_SELECTION_TIMEOUT_MS: 8000
+      # ===== MySQL：ingest 读课程资源元数据，和 Go 后端共用同一套凭据 =====
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: ${DB_USERNAME}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      # ===== MinIO：ingest 按 object_name 拉原文件，适配私有桶 =====
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+      MINIO_SECURE: "false"
+      # ===== 混合检索与灌入 =====
+      RETRIEVAL_HYBRID_ENABLED: "true"
+      RETRIEVAL_LOG_UNANSWERED: "true"
+      INGEST_MAX_FILE_BYTES: 52428800
+      # 关掉 Chroma 匿名遥测：上线不该往外网发无关请求。
+      # 旧版 posthog 与 chromadb 0.5.x 不兼容时仍可能在 stderr 打无害告警，不影响检索。
+      ANONYMIZED_TELEMETRY: "false"
+      # LLM 走通义千问 DashScope 在线 API；密钥只在 .env 里，不进 git
       LLM_BASE_URL: https://dashscope.aliyuncs.com/compatible-mode/v1
-      LLM_API_KEY: sk-ws-H.EHDIPIL.57xN.MEUCIBIKRzYmS_5N5Gt3_HNRkpKANh6VBzIEo-1FQj6yCs0DAiEAspwNWKYdhkiTWJaSgFpMr12Ahl19fSaEgzpzcwMXaWo
+      LLM_API_KEY: ${DASHSCOPE_API_KEY}
       LLM_MODEL: qwen-plus
       EMBEDDING_BASE_URL: https://dashscope.aliyuncs.com/compatible-mode/v1
       EMBEDDING_MODEL: text-embedding-v3
+      # ===== AI 出题：随机性 + 免费公开题库（失败自动降级回 AI 出题）=====
+      # 题库是英文通识题（Open Trivia DB / The Trivia API，免费、无密钥）；
+      # 只在出题页选「免费题库」时直出，INSPIRE 打开才会给 AI 出题注入风格样例。
+      # 按知识点出的简体中文专业题：检索中文权威条目作命题依据，失败自动降级
+      ZH_MATERIAL_ENABLED: "true"
+      ZH_MATERIAL_TIMEOUT: "4"
+      ZH_MATERIAL_MAX_DOCS: "4"
+      ZH_MATERIAL_MAX_SNIPPETS: "3"
+      ZH_MATERIAL_WIKIBOOKS_ENABLED: "true"
+      GENERATE_REQUIRE_CHINESE: "true"
+      QUESTION_BANK_ENABLED: "true"
+      QUESTION_BANK_INSPIRE: "false"
+      QUESTION_BANK_LOCALIZE: "true"
+      QUESTION_BANK_TIMEOUT: "6"
+      GENERATE_MAX_ATTEMPTS: "2"
+      GENERATE_SIMILARITY_THRESHOLD: "0.82"
       GO_CALLBACK_BASE: http://backend:8888
+      # 与 Go 侧 AI_INTERNAL_TOKEN 同一个值：两边不一致 → 所有 AI 调用 403
+      INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN}
     # 不映射端口到宿主机，外部请求必须经过 Go 主服务转发
     expose:
       - "8000"
+    healthcheck:
+      # 只探 /health（liveness，不含依赖）；知识库状态看 /readyz，避免 Mongo 抖动导致容器被重启
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     volumes:
       - ai_chroma_data:/app/data
 
-  # ===== MongoDB（AI 会话/任务记录） =====
+  # ===== AI 批改 worker（同一个镜像，不同 command） =====
+  ai-worker:
+    build:
+      context: ./ai-service
+    container_name: learningplatform-ai-worker
+    restart: unless-stopped
+    command: ["python", "-m", "app.tasks.worker"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      ai-service:
+        condition: service_started
+    environment:
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      LLM_BASE_URL: https://dashscope.aliyuncs.com/compatible-mode/v1
+      LLM_API_KEY: ${DASHSCOPE_API_KEY}
+      LLM_MODEL: qwen-plus
+      GO_CALLBACK_BASE: http://backend:8888
+      INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN}
+      GRADE_QUEUE: ai:grade:queue
+    # worker 不对外提供 HTTP，不 expose 也不做 healthcheck
+
+  # ===== MongoDB（RAG 知识库主存储：文档/切片/灌入状态/未答日志/GridFS 原文件）=====
   mongo:
     image: mongo:7
     container_name: learningplatform-mongo
     restart: unless-stopped
-    # 不映射端口，只在内网
+    # 上线认证：在 .env.prod 配好 MONGO_ROOT_USER / MONGO_ROOT_PASSWORD 后取消注释，
+    # 并同步打开 ai-service 里的 MONGODB_USERNAME / PASSWORD / AUTH_SOURCE。
+    # 本地保持无认证，方便直接连；无论如何都不映射端口到宿主机。
+    # environment:
+    #   MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+    #   MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    # 不映射端口，只在 docker 内网可达
     expose:
       - "27017"
     volumes:

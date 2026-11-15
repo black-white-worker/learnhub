@@ -65,7 +65,7 @@ func guardCourseMedia(w http.ResponseWriter, r *http.Request, svcCtx *svc.Servic
 	actor := user.CurrentUser(r)
 	c, err := course.Store.GetCourse(courseId)
 	if err != nil {
-		courseError(r, w, course.ErrNotFound("课程不存在"))
+		courseError(r, w, course.CourseLookupError(courseId, err))
 		return false
 	}
 	access := course.ResolveMediaAccess(svcCtx, actor, c)

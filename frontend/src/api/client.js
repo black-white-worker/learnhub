@@ -28,7 +28,8 @@ attachRequestInterceptor(axios)
 // ===== 2. 401 统一处理（清会话 + 跳登录）=====
 let redirecting = false
 
-function handleUnauthorized() {
+// 导出给 fetch 直连的请求用（SSE 流走不了 axios，但过期会话必须有同样的表现）
+export function handleUnauthorized() {
   if (redirecting) return
   redirecting = true
   localStorage.removeItem('token')

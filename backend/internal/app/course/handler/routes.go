@@ -5,6 +5,7 @@ import (
 
 	"learningplatform/internal/app/course"
 	"learningplatform/internal/app/user"
+	"learningplatform/internal/platform/middleware"
 	"learningplatform/internal/svc"
 
 	"github.com/zeromicro/go-zero/rest"
@@ -45,6 +46,10 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 		{Method: http.MethodPost, Path: "/api/course/upload/multipart/sign", Handler: MultipartSignHandler(serverCtx)},
 		{Method: http.MethodPost, Path: "/api/course/upload/multipart/complete", Handler: MultipartCompleteHandler(serverCtx)},
 		{Method: http.MethodPost, Path: "/api/course/upload/multipart/abort", Handler: MultipartAbortHandler(serverCtx)},
+		// 断点续传：刷新页面后按 uploadId 查已完成分片，跳过重传
+		{Method: http.MethodPost, Path: "/api/course/upload/multipart/status", Handler: MultipartStatusHandler(serverCtx)},
+		// 视频后处理（faststart）失败时人工重新排队
+		{Method: http.MethodPost, Path: "/api/course/video/reprocess/:courseId/:videoId", Handler: ReprocessVideoHandler(serverCtx)},
 		{Method: http.MethodPut, Path: "/api/course/edit", Handler: EditCourseHandler(serverCtx)},
 		{Method: http.MethodDelete, Path: "/api/course/delete/:id", Handler: DeleteCourseHandler(serverCtx)},
 		{Method: http.MethodDelete, Path: "/api/course/resource/:courseId/:resourceId", Handler: ResourceDeleteHandler(serverCtx)},
@@ -52,8 +57,24 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 		{Method: http.MethodGet, Path: "/api/course/video/progress/:courseId/:videoId", Handler: GetVideoProgressHandler(serverCtx)},
 		{Method: http.MethodPost, Path: "/api/course/note", Handler: addNoteHandler(serverCtx)},
 		{Method: http.MethodGet, Path: "/api/course/note/:courseId/:videoId", Handler: listNotesHandler(serverCtx)},
+		// 整门课的笔记（路径用 notes 复数，避免和上面的 :courseId/:videoId 撞路由）
+		{Method: http.MethodGet, Path: "/api/course/notes/summary/:courseId", Handler: summaryNotesHandler(serverCtx)},
 	}
 	server.AddRoutes(
 		rest.WithMiddleware(user.NewAuthMiddleware(serverCtx).Handle, protectedRoutes...),
+	)
+
+	// ai-service 取数入口：灌库与答疑共用同一份「课程资料」清单（讲义 + 视频）。
+	// 它返回整门课的下载地址，权限比「登录即可读」更高，所以只认 X-Internal-Token，
+	// 且不挂登录中间件 —— 服务间调用手里没有用户 JWT，也不该去伪造一个。
+	server.AddRoutes(
+		rest.WithMiddleware(
+			middleware.NewInternalTokenMiddleware(serverCtx.Config.AiService.InternalToken).Handle,
+			rest.Route{
+				Method:  http.MethodGet,
+				Path:    "/api/internal/course/:courseId/kb-manifest",
+				Handler: KbManifestHandler(serverCtx),
+			},
+		),
 	)
 }

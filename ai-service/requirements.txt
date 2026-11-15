@@ -18,3 +18,8 @@ python-multipart==0.0.12
 tiktoken==0.8.0
 sqlalchemy==2.0.35
 pymongo==4.9.2
+# 知识灌入：MySQL 读元数据（旧脚本用了却没声明）、PDF 正文解析、
+# MinIO 私有桶按 object_name 拉原文件（公开桶/预签名 URL 仍走标准库兜底）
+pymysql==1.1.1
+pypdf==5.1.0
+minio==7.2.9

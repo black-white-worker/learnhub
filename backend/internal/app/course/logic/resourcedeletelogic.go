@@ -34,5 +34,7 @@ func (l *ResourceDeleteLogic) Delete(req *course.DeleteResourceRequest) (resp *c
 	if err := course.Store.DeleteResource(req.CourseId, req.ResourceId); err != nil {
 		return nil, err
 	}
+	// 同步清掉知识库里的切片与向量：留着会变成「删了还能被 AI 引用」的幽灵资料。
+	triggerKnowledgePurge(l.svcCtx, l.ctx, int64(req.CourseId), int64(req.ResourceId))
 	return &course.DeleteResourceResponse{CourseId: req.CourseId, ResourceId: req.ResourceId}, nil
 }

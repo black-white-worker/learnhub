@@ -4,6 +4,8 @@ import { ref, onMounted, computed, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import QuestionEditor from '../components/QuestionEditor.vue'
+import AiGradePanel from '../components/class/AiGradePanel.vue'
+import { mergeComment } from '../utils/aiGrade'
 import {
   getExamDetail,
   startExam,
@@ -173,7 +175,12 @@ async function load() {
     if (r.data.submissions) {
       const gf = {}
       r.data.submissions.forEach(s => {
-        gf[s.id] = { teacherScore: s.teacherScore ?? s.autoScore ?? 0, comment: s.comment || '' }
+        gf[s.id] = {
+          teacherScore: s.teacherScore ?? s.autoScore ?? 0,
+          comment: s.comment || '',
+          // 上次保存的逐题最终评分：重新打开时逐题输入框回填它，没有才用 AI 分
+          questionScores: s.questionScores || {},
+        }
       })
       gradeForm.value = gf
     }
@@ -365,6 +372,7 @@ async function gradeSubmission(submissionId) {
   try {
     await gradeExamSubmission(submissionId, {
       teacherScore: g.teacherScore, comment: g.comment,
+      questionScores: g.questionScores || {},
     })
     ElMessage.success('批改成功')
     load()
@@ -378,6 +386,44 @@ async function gradeSubmission(submissionId) {
 function openSubmission(row) {
   activeSubmission.value = row
   showSubmission.value = true
+}
+
+// ===== 主观题 AI 初评（复用作业的批改链路）=====
+// aiGrades 随考试详情一次带回（submissionId → 摘要），面板内部自己发起/轮询/刷新。
+function aiGradeOf(sub) {
+  if (!sub || !detail.value?.aiGrades) return null
+  const grades = detail.value.aiGrades
+  return grades[sub.id] || grades[String(sub.id)] || null
+}
+
+// 「采纳」：面板已经按「客观题 + 各主观题最终分」算好总分，这里只负责落进表单。
+// 逐题分一起存下来（questionScores），重新打开答卷时逐题输入框才能回填老师改过的值。
+function applyExamAiScores({ score, scores }) {
+  const sub = activeSubmission.value
+  if (!sub) return
+  const g = gradeForm.value[sub.id]
+  if (!g) return
+  const max = detail.value?.exam?.totalScore || 100
+  if (score !== null && score !== undefined) {
+    g.teacherScore = Math.min(Math.max(Math.round(Number(score) || 0), 0), max)
+  }
+  if (scores) g.questionScores = { ...scores }
+}
+
+// 老师改任一题 → 面板实时回传新的合计，总分输入框跟着变，不用再点一次采纳
+function onExamAiChange(payload) {
+  applyExamAiScores(payload)
+}
+
+function onAdoptExamAi({ score, scores, comment }) {
+  applyExamAiScores({ score, scores })
+  const sub = activeSubmission.value
+  const g = sub ? gradeForm.value[sub.id] : null
+  if (!g) return
+  if (comment) {
+    g.comment = mergeComment(g.comment, comment, g._aiComment)
+    g._aiComment = comment
+  }
 }
 
 // 解析学生答案为 {qid: value}
@@ -509,6 +555,23 @@ onUnmounted(() => {
                 <div style="background:#f5f7fa;padding:8px;border-radius:4px;white-space:pre-wrap">{{ submissionAnswers[q.id] || '(未答)' }}</div>
               </div>
             </div>
+          </div>
+
+          <!-- 主观题 AI 初评：复用作业的批改链路（同一队列 / 同一张建议表），考试只换数据来源 -->
+          <div style="margin-top:12px">
+            <AiGradePanel
+              :submission-id="activeSubmission.id"
+              :questions="detail.questions"
+              :initial-grade="aiGradeOf(activeSubmission)"
+              :max-score="detail.exam.totalScore || 100"
+              :objective-score="objectiveScore(activeSubmission) || 0"
+              :stored-scores="activeSubmission.questionScores"
+              :manual-types="['essay', 'fill', 'fileupload']"
+              :ai-enabled="detail.aiEnabled === true"
+              base-url="/exam/submission"
+              @adopt="onAdoptExamAi"
+              @change="onExamAiChange"
+            />
           </div>
         </div>
         <template #footer>

@@ -18,10 +18,11 @@ func deleteClassHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 		classId := class.ParseIntPath(r, "id")
-		if err := logic.NewDeleteClassLogic(r.Context(), svcCtx).DeleteClass(classId, cu); err != nil {
+		stats, err := logic.NewDeleteClassLogic(r.Context(), svcCtx).DeleteClass(classId, cu, r.RemoteAddr)
+		if err != nil {
 			class.WriteBizError(w, err)
 			return
 		}
-		httpx.WriteJson(w, http.StatusOK, map[string]string{"message": "ok"})
+		httpx.WriteJson(w, http.StatusOK, map[string]interface{}{"message": "ok", "stats": stats})
 	}
 }

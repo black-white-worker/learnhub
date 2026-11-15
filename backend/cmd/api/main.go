@@ -62,12 +62,17 @@ func main() {
 	// 超过"开考时间 + 时长"强制收卷，并按最后一次草稿判分）
 	submitterDone := examlogic.StartAutoSubmitter(background, ctx)
 
+	// 启动视频后处理 worker（faststart 转码队列，见 course/videoprocessor.go）。
+	// 取代改造前的"上传接口裸起协程转码"：入队落库 + 限并发 + 重启自动续跑。
+	videoDone := course.StartVideoProcessor(background, ctx)
+
 	fmt.Printf("Starting server at %s:%d...\n", c.Host, c.Port)
 	server.Start()
 
 	// server 已优雅关闭（HTTP 不再接收新请求）。通知后台任务退出并等待其结束，
-	// 否则进程退出会把正在执行的收卷 / 清理动作强杀，可能留下半截状态。
+	// 否则进程退出会把正在执行的转码 / 收卷 / 清理动作强杀，可能留下半截状态。
 	cancel()
 	<-sweeperDone
 	<-submitterDone
+	<-videoDone
 }

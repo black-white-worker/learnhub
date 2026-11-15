@@ -103,7 +103,10 @@ func (l *ListLogic) List(page, size int) (resp *course.ListResponse, err error) 
 		// 没有注入 MySQL 数据层时（单测 / 本地无库环境）退回内存 store，
 		// 保证课程列表在最小依赖下也能工作，而不是 nil 指针 panic。
 		if l.svcCtx.CourseStore == nil {
-			all := course.Store.List()
+			all, err := course.Store.List()
+			if err != nil {
+				return nil, 0, err
+			}
 			total := int64(len(all))
 			start := (page - 1) * size
 			if start > len(all) {
@@ -126,7 +129,8 @@ func (l *ListLogic) List(page, size int) (resp *course.ListResponse, err error) 
 		for _, r := range rows {
 			out = append(out, &course.Course{
 				Id: int(r.Id), Name: r.Name, Intro: r.Intro, Teacher: r.Teacher,
-				CreatedBy: r.CreatedBy,
+				CreatedBy:  r.CreatedBy,
+				VideoCount: int(r.VideoCount),
 				// 私有桶开启时封面也要预签名，否则课程卡片的图会 403。
 				// 封面是公开的宣传素材，不参与媒体鉴权。
 				CoverUrl:      course.MediaURL(l.svcCtx, course.ObjectNameFromURL(r.CoverUrl, bucket), r.CoverUrl),

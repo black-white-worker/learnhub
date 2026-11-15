@@ -20,4 +20,6 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 	examhandler.RegisterRoutes(server, serverCtx)
 	// 通知中心：偏好 REST 接口 + WebSocket 实时推送路由
 	notificationhandler.RegisterRoutes(server, serverCtx)
+	// AI 模块：/api/ai/* 反向代理到 ai-service（答疑 / 出题 / 批改）
+	RegisterAIRoutes(server, serverCtx)
 }

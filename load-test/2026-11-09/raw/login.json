@@ -1,0 +1,80 @@
+{
+  "mode": "login",
+  "label": "login",
+  "args": {
+    "tokens": "/w/tokens.json",
+    "min-free-mb": "40",
+    "out": "/w/raw",
+    "mode": "login",
+    "label": "login",
+    "ladder": "4,8,16",
+    "secs": "25",
+    "step-gap": "12"
+  },
+  "startedAt": "2026-11-09T16:12:12.163Z",
+  "finishedAt": "2026-11-09T16:12:38.609Z",
+  "steps": [
+    {
+      "concurrency": 4,
+      "startedAtWall": "2026-11-09T16:12:12.356Z",
+      "elapsedSeconds": 26.12,
+      "aborted": null,
+      "memAvailableMbEnd": 135,
+      "samples": [
+        {
+          "atSec": 7,
+          "memAvailableMb": 114,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 13,
+          "memAvailableMb": 113,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 20,
+          "memAvailableMb": 110,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 25,
+          "memAvailableMb": 141,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        }
+      ],
+      "requests": 279,
+      "successful": 269,
+      "failed": 10,
+      "successRatePercent": 96.416,
+      "requestsPerSecond": 10.68,
+      "throughputKBps": 1.43,
+      "latencyMs": {
+        "p50": 160.14,
+        "p95": 2309.75,
+        "p99": 3618.66,
+        "max": 3746.87
+      },
+      "statusCodes": {
+        "200": 269,
+        "503": 10
+      },
+      "errors": {}
+    }
+  ]
+}

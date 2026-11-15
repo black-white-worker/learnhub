@@ -1,0 +1,73 @@
+{
+  "mode": "simple",
+  "label": "smoke_course_list",
+  "args": {
+    "tokens": "/w/tokens.json",
+    "min-free-mb": "40",
+    "out": "/w/raw",
+    "mode": "simple",
+    "label": "smoke_course_list",
+    "path": "/api/course/list?page=1&pageSize=20",
+    "ladder": "8",
+    "secs": "20"
+  },
+  "startedAt": "2026-11-09T16:03:30.705Z",
+  "finishedAt": "2026-11-09T16:04:08.804Z",
+  "steps": [
+    {
+      "concurrency": 8,
+      "startedAtWall": "2026-11-09T16:03:30.736Z",
+      "elapsedSeconds": 22.98,
+      "aborted": null,
+      "memAvailableMbEnd": 501,
+      "samples": [
+        {
+          "atSec": 7,
+          "memAvailableMb": 110,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 18,
+          "memAvailableMb": 98,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 23,
+          "memAvailableMb": 502,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        }
+      ],
+      "requests": 2848,
+      "successful": 2840,
+      "failed": 8,
+      "successRatePercent": 99.719,
+      "requestsPerSecond": 123.94,
+      "throughputKBps": 26.67,
+      "latencyMs": {
+        "p50": 2.36,
+        "p95": 34.95,
+        "p99": 652.08,
+        "max": 12093.56
+      },
+      "statusCodes": {
+        "0": 8,
+        "200": 2840
+      },
+      "errors": {
+        "ECONNRESET": 8
+      }
+    }
+  ]
+}

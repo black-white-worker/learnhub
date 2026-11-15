@@ -268,3 +268,229 @@ test('未填课程名点上传视频 → 提示先输入课程名，且不发请
   assert.equal(calls.createCourse, 0)
   assert.equal(calls.uploadCourseVideos, 0)
 })
+
+// ===== 大文件分流：>250MB 走分片直传 =====
+
+const MB = 1024 * 1024
+
+test('小文件仍走表单批量上传，不触发分片', async () => {
+  const { api, calls } = makeApi()
+  const session = makeSession()
+  let multipartCalls = 0
+  const r = await uploadVideosFlow(api, form, session, [{ name: 'a.mp4', size: 100 * MB }], {
+    uploadMultipart: async () => {
+      multipartCalls += 1
+      return { video: { id: 99 } }
+    },
+  })
+  assert.equal(r.ok, true)
+  assert.equal(multipartCalls, 0)
+  assert.equal(calls.uploadCourseVideos, 1)
+})
+
+test('大文件逐个分片直传，小文件同批表单上传，结果合并', async () => {
+  const { api, calls } = makeApi()
+  const session = makeSession()
+  session.createdId.value = 7
+  const bigSeen = []
+  const r = await uploadVideosFlow(
+    api,
+    form,
+    session,
+    [
+      { name: 'small.mp4', size: 50 * MB },
+      { name: 'big1.mp4', size: 300 * MB },
+      { name: 'big2.mp4', size: 600 * MB },
+    ],
+    {
+      uploadMultipart: async (file) => {
+        bigSeen.push(file.name)
+        return { video: { id: 10 + bigSeen.length, name: file.name } }
+      },
+    },
+  )
+  assert.equal(r.ok, true)
+  assert.equal(r.count, 3) // 1 个表单 + 2 个分片
+  assert.deepEqual(bigSeen, ['big1.mp4', 'big2.mp4'])
+  assert.equal(calls.uploadCourseVideos, 1)
+  assert.deepEqual(
+    session.videoResult.value.map((v) => v.name),
+    ['v.mp4', 'big1.mp4', 'big2.mp4'],
+  )
+})
+
+test('分片进度回调带上文件名', async () => {
+  const { api } = makeApi()
+  const session = makeSession()
+  session.createdId.value = 7
+  const events = []
+  await uploadVideosFlow(api, form, session, [{ name: 'big.mp4', size: 400 * MB }], {
+    uploadMultipart: async (file, opts) => {
+      opts.onProgress({ percent: 30, phase: 'uploading', uploaded: 120 * MB, total: file.size })
+      opts.onProgress({ percent: 100, phase: 'merging', uploaded: file.size, total: file.size })
+      return { video: { id: 1, name: file.name } }
+    },
+    onProgress: (p) => events.push(p),
+  })
+  assert.equal(events.length, 2)
+  assert.equal(events[0].percent, 30)
+  assert.equal(events[0].phase, 'uploading')
+  assert.equal(events[0].file, 'big.mp4')
+  assert.equal(events[1].phase, 'merging')
+})
+
+test('分片上传失败 → 返回错误，已成功的结果不落 videoResult', async () => {
+  const { api } = makeApi()
+  const session = makeSession()
+  session.createdId.value = 7
+  const r = await uploadVideosFlow(api, form, session, [{ name: 'big.mp4', size: 400 * MB }], {
+    uploadMultipart: async () => {
+      throw new Error('第 12 片上传失败：网络中断')
+    },
+  })
+  assert.match(r.error, /第 12 片上传失败/)
+  assert.equal(session.videoResult.value.length, 0)
+})
+
+test('用户取消分片上传 → 提示已取消，不当成错误堆栈', async () => {
+  const { api } = makeApi()
+  const session = makeSession()
+  session.createdId.value = 7
+  const err = new Error('上传已取消')
+  err.name = 'UploadCancelled'
+  const r = await uploadVideosFlow(api, form, session, [{ name: 'big.mp4', size: 400 * MB }], {
+    uploadMultipart: async () => {
+      throw err
+    },
+  })
+  assert.deepEqual(r, { error: '视频上传已取消' })
+})
+
+test('最终提交兜底上传大文件 → 走分片，opts 一路传下去', async () => {
+  const { api } = makeApi()
+  const session = makeSession()
+  let multipart = 0
+  const r = await createCourseFlow(
+    api,
+    form,
+    session,
+    {
+      coverFile: null,
+      videoFiles: [{ name: 'big.mp4', size: 500 * MB }],
+      coverResult: session.coverResult,
+      videoResult: session.videoResult,
+    },
+    { uploadMultipart: async (file) => { multipart += 1; return { video: { id: 3, name: file.name } } } },
+  )
+  assert.deepEqual(r, { ok: true })
+  assert.equal(multipart, 1)
+  assert.equal(session.videoResult.value.length, 1)
+})
+
+// ===== 表单直传（<250MB）也要有真进度 =====
+// 这块以前是断的：流程函数读的是 opts.onUploadProgress，
+// 而创建页只传了 opts.onProgress，结果小文件上传全程 percent=0、进度条压根不出现。
+
+test('表单视频上传：字节进度会汇报，发满只到 99，回包后才 100', async () => {
+  const { api } = makeApi({
+    uploadCourseVideos: async (courseId, fd, onProgress) => {
+      onProgress({ loaded: 60 * MB, total: 200 * MB })
+      onProgress({ loaded: 200 * MB, total: 200 * MB })
+      return { data: { videos: [{ id: 1, name: 'a.mp4' }] } }
+    },
+  })
+  const session = makeSession()
+  session.createdId.value = 7
+  const events = []
+  const r = await uploadVideosFlow(api, form, session, [{ name: 'a.mp4', size: 200 * MB }], {
+    onProgress: (p) => events.push(p),
+  })
+  assert.equal(r.ok, true)
+  assert.equal(events[0].percent, 30)
+  assert.equal(events[0].phase, 'transferring')
+  assert.equal(events[1].percent, 99)
+  assert.equal(events[1].phase, 'processing')
+  // 最后一条是"排队转码"而不是笼统的"上传完成"：faststart 还没做
+  assert.equal(events[events.length - 1].percent, 100)
+  assert.equal(events[events.length - 1].phase, 'queued')
+})
+
+test('多个小文件一次提交：进度标签写"N 个视频"而不是随便挑一个文件名', async () => {
+  const { api } = makeApi({
+    uploadCourseVideos: async (courseId, fd, onProgress) => {
+      onProgress({ loaded: 50 * MB, total: 100 * MB })
+      return { data: { videos: [{ id: 1, name: 'a.mp4' }, { id: 2, name: 'b.mp4' }] } }
+    },
+  })
+  const session = makeSession()
+  session.createdId.value = 7
+  const events = []
+  await uploadVideosFlow(
+    api,
+    form,
+    session,
+    [{ name: 'a.mp4', size: 50 * MB }, { name: 'b.mp4', size: 50 * MB }],
+    { onProgress: (p) => events.push(p) },
+  )
+  assert.equal(events[0].file, '2 个视频')
+  assert.equal(events[events.length - 1].file, '2 个视频')
+})
+
+test('封面上传同样报进度，并以 100% 收尾', async () => {
+  const { api } = makeApi({
+    uploadCourseCover: async (courseId, fd, onProgress) => {
+      onProgress({ loaded: 500 * 1024, total: 1024 * 1024 })
+      return { data: { coverUrl: 'u', coverThumbUrl: 't' } }
+    },
+  })
+  const session = makeSession()
+  session.createdId.value = 7
+  const events = []
+  const r = await uploadCoverFlow(api, form, session, { name: 'cover.jpg', size: 1024 * 1024 }, {
+    onProgress: (p) => events.push(p),
+  })
+  assert.equal(r.ok, true)
+  assert.equal(events[0].percent, 49)
+  assert.equal(events[0].file, 'cover.jpg')
+  assert.equal(events[events.length - 1].percent, 100)
+  assert.equal(events[events.length - 1].phase, 'done')
+})
+
+test('最终提交（兜底上传）也把进度透出来', async () => {
+  const { api } = makeApi({
+    uploadCourseVideos: async (courseId, fd, onProgress) => {
+      onProgress({ loaded: 100 * MB, total: 100 * MB })
+      return { data: { videos: [{ id: 1, name: 'a.mp4' }] } }
+    },
+  })
+  const session = makeSession()
+  const events = []
+  await createCourseFlow(
+    api,
+    form,
+    session,
+    {
+      coverFile: null,
+      videoFiles: [{ name: 'a.mp4', size: 100 * MB }],
+      coverResult: session.coverResult,
+      videoResult: session.videoResult,
+    },
+    { onProgress: (p) => events.push(p) },
+  )
+  assert.ok(events.length >= 2)
+  assert.equal(events[0].percent, 99)
+  assert.equal(events[events.length - 1].percent, 100)
+})
+
+test('接口不回调进度（老 mock / 不支持 onUploadProgress）也不会炸', async () => {
+  const { api } = makeApi()
+  const session = makeSession()
+  session.createdId.value = 7
+  const events = []
+  const r = await uploadVideosFlow(api, form, session, [{ name: 'a.mp4', size: 20 * MB }], {
+    onProgress: (p) => events.push(p),
+  })
+  assert.equal(r.ok, true)
+  // 没收到字节事件，但回包后仍然给出完成态
+  assert.deepEqual(events.map((e) => e.percent), [100])
+})

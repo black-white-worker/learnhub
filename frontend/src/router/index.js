@@ -103,6 +103,19 @@ const routes = [
     meta: { title: '逐份批阅', requiresAuth: true },
   },
   {
+    path: '/ai/chat',
+    name: 'ai-chat',
+    component: () => import('../views/AiChatView.vue'),
+    meta: { title: 'AI 答疑', requiresAuth: true },
+  },
+  {
+    // AI 出题只有老师/管理员能用（Python 侧按 X-Role 也拦一道，这里只是不进错页面）
+    path: '/ai/generate',
+    name: 'ai-generate',
+    component: () => import('../views/AiGenerateView.vue'),
+    meta: { title: 'AI 出题', requiresAuth: true, roles: ['teacher', 'admin'] },
+  },
+  {
     path: '/admin/users',
     name: 'admin-users',
     component: () => import('../views/admin/AdminUsersView.vue'),
@@ -113,6 +126,12 @@ const routes = [
     name: 'admin-courses',
     component: () => import('../views/admin/AdminCoursesView.vue'),
     meta: { title: '课程管理', requiresAuth: true },
+  },
+  {
+    path: '/admin/classes',
+    name: 'admin-classes',
+    component: () => import('../views/admin/AdminClassesView.vue'),
+    meta: { title: '班级管理', requiresAuth: true },
   },
   {
     // 404 兜底：放在最后，匹配所有未命中的地址
@@ -134,7 +153,7 @@ const router = createRouter({
 // 登录成功后可以回到原页面（LoginView 读 redirect 参数）。
 // 判定逻辑抽在 guard.js 里，方便单测。
 router.beforeEach((to) => {
-  return resolveNavigation(to, localStorage.getItem('token'))
+  return resolveNavigation(to, localStorage.getItem('token'), localStorage.getItem('role'))
 })
 
 // 标题：每个页面带上名字，标签页里能分辨

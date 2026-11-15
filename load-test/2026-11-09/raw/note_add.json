@@ -1,0 +1,92 @@
+{
+  "mode": "note-add",
+  "label": "note_add",
+  "args": {
+    "tokens": "/w/tokens.json",
+    "min-free-mb": "40",
+    "out": "/w/raw",
+    "mode": "note-add",
+    "label": "note_add",
+    "ladder": "2,4,8",
+    "secs": "25",
+    "step-gap": "12"
+  },
+  "startedAt": "2026-11-09T16:14:28.060Z",
+  "finishedAt": "2026-11-09T16:14:56.683Z",
+  "steps": [
+    {
+      "concurrency": 2,
+      "startedAtWall": "2026-11-09T16:14:28.468Z",
+      "elapsedSeconds": 27.95,
+      "aborted": null,
+      "memAvailableMbEnd": 131,
+      "samples": [
+        {
+          "atSec": 6,
+          "memAvailableMb": 111,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 12,
+          "memAvailableMb": 158,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 17,
+          "memAvailableMb": 124,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 22,
+          "memAvailableMb": 124,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 28,
+          "memAvailableMb": 135,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        }
+      ],
+      "requests": 22,
+      "successful": 14,
+      "failed": 8,
+      "successRatePercent": 63.636,
+      "requestsPerSecond": 0.79,
+      "throughputKBps": 0.01,
+      "latencyMs": {
+        "p50": 1977.19,
+        "p95": 4532.15,
+        "p99": 4572.5,
+        "max": 4572.5
+      },
+      "statusCodes": {
+        "0": 4,
+        "200": 14,
+        "503": 4
+      },
+      "errors": {
+        "ECONNRESET": 4
+      }
+    }
+  ]
+}

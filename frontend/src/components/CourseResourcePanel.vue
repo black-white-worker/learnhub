@@ -1,11 +1,19 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   fetchCourseResources,
   uploadCourseResource,
   deleteCourseResource,
 } from '../api/index.js'
+import {
+  applyProgressEvent,
+  DONE_PERCENT,
+  makeUploadProgressReporter,
+  newProgressState,
+  progressLine,
+  resetProgressState,
+} from '../utils/uploadProgress.js'
 
 // 课程资源面板（来自「课程资源」分支）：
 // 自包含组件，接收 courseId，自己负责加载 / 上传 / 删除资源列表。
@@ -20,6 +28,8 @@ const resources = ref([])
 const loading = ref(false)
 const uploading = ref(false)
 const fileInput = ref(null)
+// 讲义传输进度：字节封顶 99%，后端写完对象存储 + 落库回包才 100
+const uploadProgress = reactive(newProgressState())
 
 async function load() {
   loading.value = true
@@ -45,13 +55,24 @@ function onChange(file) {
 async function doUpload(file) {
   if (!file) return
   uploading.value = true
+  resetProgressState(uploadProgress)
+  uploadProgress.file = file.name
+  uploadProgress.total = file.size || 0
   const fd = new FormData()
   fd.append('file', file)
   try {
-    await uploadCourseResource(props.courseId, fd)
+    await uploadCourseResource(
+      props.courseId,
+      fd,
+      makeUploadProgressReporter(file.name, (p) => applyProgressEvent(uploadProgress, p)),
+    )
+    // 后端回包了才算 100：进度条传完不收起，停在"上传完成"直到下一次选择
+    applyProgressEvent(uploadProgress, { percent: DONE_PERCENT, phase: 'done', file: file.name })
     ElMessage.success('资源上传成功')
     load()
   } catch (e) {
+    // 失败时把进度条撤掉，避免停在 99%"服务端处理中"看着像还在传
+    resetProgressState(uploadProgress)
     ElMessage.error('上传失败：' + (e.response?.data?.msg || e.message))
   } finally {
     uploading.value = false
@@ -117,6 +138,12 @@ function typeTag(type) {
       </el-upload>
     </div>
 
+    <!-- 讲义是同步接口：字节传完还要等后端写对象存储 + 落库，所以 99% 那段必须给出文案 -->
+    <div v-if="uploading || uploadProgress.phase" class="res-progress">
+      <el-progress :percentage="uploadProgress.percent" :stroke-width="12" />
+      <span class="res-progress-text">{{ progressLine(uploadProgress) }}</span>
+    </div>
+
     <div v-if="resources.length" class="res-list">
       <div v-for="r in resources" :key="r.id" class="res-item">
         <span class="type-badge" :style="{ background: typeTag(r.type).color }">
@@ -150,6 +177,17 @@ function typeTag(type) {
 .tip {
   font-size: 13px;
   color: #9ca3af;
+}
+
+.res-progress {
+  margin: -6px 0 14px;
+}
+
+.res-progress-text {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #6b7280;
 }
 
 .res-list {

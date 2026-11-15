@@ -33,7 +33,8 @@ param(
     [switch]$MirrorOnly,
     [switch]$SkipBuild,
     [switch]$SkipUpload,
-    [switch]$RebuildBase
+    [switch]$RebuildBase,
+    [switch]$UploadOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -78,9 +79,9 @@ if ($EnvOk -ne "YES") {
     throw "$RemoteDir/.env.prod is missing on the server. Create it before deploying."
 }
 
-$Infra = ((& ssh @SshArgs $Target "docker ps --format '{{.Names}}' | grep -c '^infra-mysql$'") | Out-String).Trim()
+$Infra = ((& ssh @SshArgs $Target "docker ps --format '{{.Names}}' | grep -c '^lp-mysql$'") | Out-String).Trim()
 if ($Infra -ne "1") {
-    Write-Warning "infra-mysql 未运行，flyway 会失败。先执行：bash /opt/apps/learningplatform/deploy/server/deploy.sh infra"
+    Write-Host "lp-mysql 未运行：redeploy.sh 会先用本栈 docker-compose.infra.yml 幂等启动 lp-infra，无需手动起共享中间件。"
 }
 
 # ---------------------------------------------------------------------
@@ -245,7 +246,8 @@ $UploadFiles = @(
     "deploy\server\setup-mirror.sh",
     "deploy\server\redeploy.sh",
     "docker-compose.server.yml",
-    "docker-compose.artifact.yml"
+    "docker-compose.artifact.yml",
+    "docker-compose.infra.yml"
 )
 foreach ($relative in $UploadFiles) {
     $source = Join-Path $ProjectRoot $relative
@@ -256,13 +258,16 @@ foreach ($relative in $UploadFiles) {
 }
 
 # ---------------------------------------------------------------------
-# 3b) 可选上传：共享中间件的定义与初始化脚本
+# 3b) 可选上传：旧共享中间件入口（已退役，仅留作迁移/回滚参考）
 # ---------------------------------------------------------------------
-# 这三个文件不属于 lp-backend/lp-frontend 的构建产物，但三个项目都靠它们：
-#   docker-compose.infra.yml      改了 Redis 淘汰策略 / MinIO CORS / 常驻内存下限
-#   init/mysql/01-databases.sql   首次建库
-#   init/mysql/02-app-users.sql   分项目账号（卷已初始化过，需要手动执行一次，见文件头）
-# 只警告不 throw：少了它们应用层照样能部署，别让 infra 文件绑死每次应用部署。
+# 拆栈后本栈独立中间件是根目录 docker-compose.infra.yml（已在 3) 作为必需文件上传，
+# 项目名 learningplatform-infra，容器 lp-mysql/lp-redis/lp-minio，redeploy.sh 会自动起它）。
+# 下面这些 deploy/server/* 是改造前的共享 lp-infra 入口（infra-mysql 等），现已退役：
+#   deploy/server/docker-compose.infra.yml  旧共享定义（别再 deploy.sh infra，会和新栈抢 3306/6379/9010）
+#   deploy/server/bootstrap.sh              新服务器一次性初始化（Docker/swap/网络），仍可用
+#   deploy/server/deploy.sh                 旧共享启停入口，仅迁移/回滚时参考
+#   init/mysql/*.sql                        旧共享 MySQL 建库/建账号脚本（新栈各库由 MYSQL_DATABASE 自动建）
+# 只警告不 throw：少了它们应用层照样能部署。
 $OptionalUploadFiles = @(
     "deploy\server\docker-compose.infra.yml",
     "deploy\server\bootstrap.sh",
@@ -326,13 +331,24 @@ else {
 # ---------------------------------------------------------------------
 # 5) 服务器重建 + 重启（只 COPY 产物）
 # ---------------------------------------------------------------------
-Write-Host "[5/5] 服务器重建（只 COPY 产物）"
-if ($RebuildBase) {
-    Invoke-OnServer "REBUILD_BASE=1 bash '$RemoteDir/deploy/server/redeploy.sh'"
+if ($UploadOnly) {
+    Write-Host "[5/5] -UploadOnly：产物已上传到服务器，不跑 redeploy.sh（不启动新中间件）。"
+    Write-Host "      先跑迁移脚本，再用 -SkipBuild -SkipUpload 部署。"
 }
 else {
-    Invoke-OnServer "bash '$RemoteDir/deploy/server/redeploy.sh'"
+    Write-Host "[5/5] 服务器重建（只 COPY 产物）"
+    if ($RebuildBase) {
+        Invoke-OnServer "REBUILD_BASE=1 bash '$RemoteDir/deploy/server/redeploy.sh'"
+    }
+    else {
+        Invoke-OnServer "bash '$RemoteDir/deploy/server/redeploy.sh'"
+    }
 }
 
 Write-Host ""
-Write-Host ("Done in {0:N1} min: http://{1}/" -f $Total.Elapsed.TotalMinutes, $Server)
+if ($UploadOnly) {
+    Write-Host ("Staged in {0:N1} min (no deploy): {1}" -f $Total.Elapsed.TotalMinutes, $RemoteDir)
+}
+else {
+    Write-Host ("Done in {0:N1} min: http://{1}/" -f $Total.Elapsed.TotalMinutes, $Server)
+}

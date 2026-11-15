@@ -1,10 +1,36 @@
 <script setup>
-import { ref, reactive, onMounted, computed, watch } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { VideoPlay } from '@element-plus/icons-vue'
-import { getCourseDetail, editCourse, deleteCourse, uploadCourseVideos } from '../api/index.js'
+import {
+  getCourseDetail,
+  editCourse,
+  deleteCourse,
+  uploadCourseVideos,
+  initMultipartUpload,
+  signMultipartParts,
+  completeMultipartUpload,
+  abortMultipartUpload,
+  fetchMultipartUploadStatus,
+  reprocessCourseVideo,
+} from '../api/index.js'
 import CourseResourcePanel from '../components/CourseResourcePanel.vue'
+import { shouldUseMultipart, uploadByMultipart } from '../utils/videoUpload.js'
+import {
+  DONE_PERCENT,
+  applyProgressEvent,
+  makeUploadProgressReporter,
+  newProgressState,
+  progressLine,
+  resetProgressState,
+} from '../utils/uploadProgress.js'
+import {
+  POLL_INTERVAL_MS,
+  processStatusTag,
+  canRetryProcess,
+  hasRunningProcess,
+} from '../utils/videoStatus.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -37,8 +63,9 @@ async function loadDetail() {
     form.name = detail.value.name
     form.intro = detail.value.intro || ''
     form.teacher = detail.value.teacher || ''
+    syncPolling()
   } catch (e) {
-    ElMessage.error('课程详情加载失败：' + (e.response?.data?.msg || e.message))
+    ElMessage.error('课程详情加载失败：' + errText(e))
   } finally {
     loading.value = false
   }
@@ -47,7 +74,49 @@ async function loadDetail() {
 onMounted(loadDetail)
 
 // 路由参数变化（同组件内切换课程）时重新加载
-watch(courseId, loadDetail)
+watch(courseId, () => {
+  stopPolling()
+  loadDetail()
+})
+
+onUnmounted(stopPolling)
+
+// ===== 转码状态轮询 =====
+//
+// 后处理挪到后端队列之后，前端拿到的结果只是"排队中"，
+// 老师需要看到它变成"已优化"，所以有在跑的任务时定时静默刷新。
+// 用轮询而不是 WebSocket：详情页本来就有这个接口，不用为一个小徽标加长连接。
+let pollTimer = null
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+// 只在还有 pending/processing 的视频时轮询，全部处理完自动停下
+function syncPolling() {
+  if (hasRunningProcess(detail.value?.videos)) startPolling()
+  else stopPolling()
+}
+
+function startPolling() {
+  if (pollTimer) return
+  pollTimer = setInterval(refreshSilently, POLL_INTERVAL_MS)
+}
+
+// 静默刷新：不置 loading（否则每隔 5 秒整页闪一次遮罩），
+// 也不覆盖编辑表单（老师正在改简介时不该被刷掉）。
+async function refreshSilently() {
+  try {
+    const res = await getCourseDetail(courseId.value)
+    detail.value = res.data
+  } catch {
+    /* 一次轮询失败不管：网络断了下一轮还会再试 */
+  }
+  syncPolling()
+}
 
 function startEdit() {
   form.name = detail.value.name
@@ -69,7 +138,7 @@ async function saveEdit() {
     editing.value = false
     loadDetail()
   } catch (e) {
-    ElMessage.error('保存失败：' + (e.response?.data?.msg || e.message))
+    ElMessage.error('保存失败：' + errText(e))
   } finally {
     saving.value = false
   }
@@ -112,7 +181,7 @@ async function onDelete() {
     ElMessage.success('课程已删除')
     router.push('/courses')
   } catch (e) {
-    ElMessage.error('删除失败：' + (e.response?.data?.msg || e.message))
+    ElMessage.error('删除失败：' + errText(e))
   }
 }
 
@@ -128,22 +197,98 @@ function formatSize(bytes) {
   return `${n.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
 }
 
-// 上传视频：el-upload 自定义 http-request，直接 FormData 调后端
+// 后端错误文案统一从响应体里取，取不到才退回异常本身
+function errText(e) {
+  return e?.response?.data?.msg || e?.message || '未知错误'
+}
+
+// 上传视频：小文件走表单直传，大文件（>250MB）走分片直传 + 断点续传。
+//
+// 分片路径的字节流不经过后端 API 容器，是浏览器 PUT 到预签名 URL，
+// 所以这里的进度来自"已确认落地的分片"，比 axios 的已发字节可信。
+const multipartApi = {
+  initMultipartUpload,
+  signMultipartParts,
+  completeMultipartUpload,
+  abortMultipartUpload,
+  fetchMultipartUploadStatus,
+}
+
+// 阶段文案与百分比统一走 utils/uploadProgress.js：
+// 同一个视频在创建页 / 详情页 / 列表快捷上传里传，进度必须长一个样。
 const uploading = ref(false)
+const uploadProgress = reactive(newProgressState())
+const isMultipart = ref(false)
+let uploadController = null
+
+// 取消当前上传（分片路径才会用到；表单路径浏览器自己截断即可）
+function cancelUpload() {
+  uploadController?.abort()
+}
+
 async function onUploadVideo(option) {
   uploading.value = true
+  resetProgressState(uploadProgress)
+  uploadProgress.file = option.file?.name || ''
+  uploadProgress.total = option.file?.size || 0
+  isMultipart.value = shouldUseMultipart(option.file)
+  uploadController = new AbortController()
   try {
-    const fd = new FormData()
-    fd.append('files', option.file)
-    await uploadCourseVideos(courseId.value, fd)
-    ElMessage.success('视频上传成功')
+    if (isMultipart.value) {
+      await uploadByMultipart(option.file, {
+        courseId: courseId.value,
+        api: multipartApi,
+        signal: uploadController.signal,
+        // util 报 done 只代表分片合并完了，转码还在队列里排队
+        onProgress: (p) =>
+          applyProgressEvent(uploadProgress, { ...p, phase: p.phase === 'done' ? 'queued' : p.phase }),
+      })
+    } else {
+      const fd = new FormData()
+      fd.append('files', option.file)
+      await uploadCourseVideos(
+        courseId.value,
+        fd,
+        makeUploadProgressReporter(option.file.name, (p) => applyProgressEvent(uploadProgress, p)),
+      )
+      // 表单路径后端是一次性收完再落库，回包到这里才算真的传完
+      applyProgressEvent(uploadProgress, { percent: DONE_PERCENT, phase: 'queued' })
+    }
+    ElMessage.success('视频上传成功，服务器正在排队转码')
     option.onSuccess?.(null)
-    loadDetail()
+    await loadDetail()
   } catch (e) {
-    ElMessage.error('上传失败：' + (e.response?.data?.msg || e.message))
+    // 失败 / 取消时把进度条撤掉：停在 99%"服务端处理中"看着像还在传
+    resetProgressState(uploadProgress)
+    if (e?.name === 'UploadCancelled') {
+      // 主动取消 = 服务端 abort + 清本地记账，分片已作废，重传是从头开始；
+      // 能"重选同一文件续传"的是网络中断（util 保留了记账），不是取消。
+      ElMessage.info('已取消上传：这次传的分片服务端已作废，重新上传该文件会从头开始')
+    } else {
+      ElMessage.error('上传失败：' + errText(e))
+    }
     option.onError?.(e)
   } finally {
     uploading.value = false
+    isMultipart.value = false
+    uploadController = null
+  }
+}
+
+// 转码失败后人工重新排队：只改本地这一行的状态，随后由轮询拿回权威结果
+const retryingId = ref(0)
+async function onRetryProcess(video) {
+  retryingId.value = video.id
+  try {
+    await reprocessCourseVideo(courseId.value, video.id)
+    video.processStatus = 'pending'
+    video.processError = ''
+    ElMessage.success('已重新排队转码')
+    startPolling()
+  } catch (e) {
+    ElMessage.error('重新排队失败：' + errText(e))
+  } finally {
+    retryingId.value = 0
   }
 }
 </script>
@@ -211,7 +356,21 @@ async function onUploadVideo(option) {
                 {{ uploading ? '上传中...' : '上传视频' }}
               </el-button>
             </el-upload>
-            <span class="upload-tip">支持 mp4/webm 等常见格式，大文件建议后续走分片直传</span>
+            <el-button v-if="uploading && isMultipart" type="danger" plain size="small" @click="cancelUpload">
+              取消上传
+            </el-button>
+            <span class="upload-tip">
+              {{
+                isMultipart
+                  ? '大文件分片直传中，中断后可重选同一文件续传'
+                  : '支持 mp4/webm 等常见格式，单个最大 800MB；超过 250MB 自动改用分片直传'
+              }}
+            </span>
+            <!-- 传完不收起：最后那条"排队转码中"正是异步后处理交接的提示 -->
+            <div v-if="uploading || uploadProgress.phase" class="upload-progress">
+              <el-progress :percentage="uploadProgress.percent" :stroke-width="14" />
+              <span class="upload-phase">{{ progressLine(uploadProgress) }}</span>
+            </div>
           </div>
           <div v-if="detail.videos && detail.videos.length" class="video-list">
             <div
@@ -222,9 +381,35 @@ async function onUploadVideo(option) {
             >
               <el-icon :size="28" color="#2563eb"><VideoPlay /></el-icon>
               <div class="video-meta">
-                <span class="video-name">{{ v.name }}</span>
+                <span class="video-title">
+                  <span class="video-name">{{ v.name }}</span>
+                  <el-tooltip v-if="processStatusTag(v).hint" :content="processStatusTag(v).hint" placement="top">
+                    <el-tag
+                      size="small"
+                      :type="processStatusTag(v).type"
+                      :effect="processStatusTag(v).status === 'done' ? 'plain' : 'light'"
+                    >{{ processStatusTag(v).text }}</el-tag>
+                  </el-tooltip>
+                  <el-tag
+                    v-else
+                    size="small"
+                    :type="processStatusTag(v).type"
+                    :effect="processStatusTag(v).status === 'done' ? 'plain' : 'light'"
+                  >{{ processStatusTag(v).text }}</el-tag>
+                </span>
                 <span class="video-sub">{{ formatSize(v.size) }} · {{ v.uploadedAt }}</span>
+                <span v-if="processStatusTag(v).status === 'failed'" class="video-hint">
+                  {{ processStatusTag(v).hint }}
+                </span>
               </div>
+              <el-button
+                v-if="isOwner && canRetryProcess(v)"
+                size="small"
+                type="warning"
+                plain
+                :loading="retryingId === v.id"
+                @click.stop="onRetryProcess(v)"
+              >重试转码</el-button>
               <el-button size="small" type="primary" link>播放</el-button>
             </div>
           </div>
@@ -347,9 +532,27 @@ async function onUploadVideo(option) {
 
 .upload-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   margin: 12px 0 16px;
+}
+
+.upload-progress {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.upload-progress :deep(.el-progress) {
+  flex: 1;
+}
+
+.upload-phase {
+  font-size: 12px;
+  color: #2563eb;
+  white-space: nowrap;
 }
 
 .lock-tip {
@@ -387,6 +590,30 @@ async function onUploadVideo(option) {
 .video-name {
   font-size: 14px;
   color: #1f2937;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.video-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.video-title .video-name {
+  flex: 0 1 auto;
+}
+
+.video-title :deep(.el-tag) {
+  flex-shrink: 0;
+}
+
+/* 转码说明只留一行，超长省略；完整文案交给 tooltip */
+.video-hint {
+  font-size: 12px;
+  color: #b45309;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

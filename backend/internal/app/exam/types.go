@@ -53,6 +53,9 @@ type SaveDraftResp struct {
 type GradeReq struct {
 	TeacherScore int    `json:"teacherScore"`
 	Comment      string `json:"comment" form:"comment,optional"`
+	// QuestionScores 老师逐题最终评分（qid → 分数），用于重新打开答卷时回填；
+	// 总分仍由 TeacherScore 承载，与作业侧口径一致。
+	QuestionScores map[string]float64 `json:"questionScores"`
 }
 
 // StartExamResp 学生开考响应：返回考试时长和截止时间，前端据此倒计时。

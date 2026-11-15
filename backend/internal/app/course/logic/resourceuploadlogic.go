@@ -38,7 +38,7 @@ func NewResourceUploadLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Re
 func (l *ResourceUploadLogic) UploadResource(req *course.UploadResourceRequest) (resp *course.UploadResourceResponse, err error) {
 	// 1. 课程必须存在
 	if _, err := course.Store.GetCourse(req.CourseId); err != nil {
-		return nil, err
+		return nil, course.CourseLookupError(req.CourseId, err)
 	}
 
 	// 2. 对象存储必须可用
@@ -83,6 +83,10 @@ func (l *ResourceUploadLogic) UploadResource(req *course.UploadResourceRequest) 
 		_ = l.svcCtx.Oss.RemoveObject(l.ctx, objectName)
 		return nil, err
 	}
+
+	// 7. 联动知识库：不灌库的话 AI 答疑永远检索不到这份讲义，
+	//    学生只会看到「资料中没有相关内容」。异步执行，失败不影响上传结果。
+	triggerKnowledgeIngest(l.svcCtx, l.ctx, int64(req.CourseId), int64(res.Id))
 
 	return &course.UploadResourceResponse{CourseId: req.CourseId, Resource: res}, nil
 }

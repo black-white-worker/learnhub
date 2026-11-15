@@ -39,7 +39,7 @@ func NewVideoUploadLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Video
 func (l *VideoUploadLogic) UploadVideos(req *course.UploadVideosRequest) (resp *course.UploadVideosResponse, err error) {
 	// 1. 课程必须存在
 	if _, err := course.Store.GetCourse(req.CourseId); err != nil {
-		return nil, err
+		return nil, course.CourseLookupError(req.CourseId, err)
 	}
 
 	// 2. 对象存储必须可用
@@ -68,7 +68,7 @@ func (l *VideoUploadLogic) UploadVideos(req *course.UploadVideosRequest) (resp *
 		}
 		if f.Size > maxBytes {
 			l.rollback(uploadedObjects)
-			return nil, fmt.Errorf("视频文件 %s 超过大小上限", f.FileName)
+			return nil, fmt.Errorf("视频文件 %s 超过大小上限（%dMB）", f.FileName, maxBytes>>20)
 		}
 
 		// 4.2 扩展名校验
@@ -120,38 +120,12 @@ func (l *VideoUploadLogic) UploadVideos(req *course.UploadVideosRequest) (resp *
 		return nil, err
 	}
 
-	// 6. 异步对每个新视频做 faststart 处理（不阻塞上传响应）。
-	// 处理成功后把视频 URL 换成 moov 前置版本，浏览器即可边下边播、拖动进度条。
-	// 任何失败都只记日志，继续用原 URL 播放。
-	for _, v := range videos {
-		go l.processFaststartAsync(v)
-	}
+	// 6. 唤醒后处理 worker：faststart 转码由 course_videos.process_status
+	// 队列驱动（见 course/videoprocessor.go），不在这里开裸协程。
+	// 裸协程的问题：不入账、不限并发、进程一重启就永久丢失。
+	course.WakeVideoProcessor()
 
 	return &course.UploadVideosResponse{CourseId: req.CourseId, Videos: videos}, nil
-}
-
-// processFaststartAsync 在后台 goroutine 里对单个视频做 faststart 转码。
-// 用 context.Background()，不能用请求 ctx（请求已返回，ctx 会被取消）。
-func (l *VideoUploadLogic) processFaststartAsync(v *course.Video) {
-	defer func() {
-		if r := recover(); r != nil {
-			l.Logger.Errorf("faststart 处理 panic: %v", r)
-		}
-	}()
-
-	newURL, err := course.ProcessVideoFaststart(context.Background(), l.svcCtx, v)
-	if err != nil {
-		// ffmpeg 未安装 / 转码失败都不影响播放，原 URL 仍可用
-		l.Logger.Infof("视频 %d faststart 跳过：%v", v.Id, err)
-		return
-	}
-	// 替换 URL 并标记 faststarted（持久化到 DB，内存对象同步改）
-	if err := course.Store.MarkVideoFaststart(v.CourseId, v.Id, newURL); err != nil {
-		l.Logger.Errorf("视频 %d faststart 标记落库失败: %v", v.Id, err)
-	}
-	v.Url = newURL
-	v.Faststarted = true
-	l.Logger.Infof("视频 %d faststart 完成", v.Id)
 }
 
 // rollback 删除本次已上传到 MinIO 的对象（尽力而为，失败只记日志）。

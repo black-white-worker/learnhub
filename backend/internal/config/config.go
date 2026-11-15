@@ -24,6 +24,23 @@ type Config struct {
 
 	// Upload 文件上传大小限制（字节）
 	Upload UploadConf
+
+	// AiService AI 子服务（ai-service）配置
+	AiService AiServiceConf
+}
+
+// AiServiceConf ai-service（FastAPI）连接配置。
+// 对应 etc/learningplatform-api.yaml 里的 AiService 段，值由环境变量注入。
+//
+// Url 与 InternalToken 任一为空 → /api/ai/* 直接回 503「AI 功能未启用」，
+// 不注册转发逻辑，也不会因为连不上而 500。
+type AiServiceConf struct {
+	// Url ai-service 的根地址（容器网络内填 http://ai-service:8000）
+	Url string
+	// InternalToken 与 ai-service 共享的密钥，放请求头 X-Internal-Token。
+	// ai-service 只信任带这个头的请求 —— 否则任何人都能绕过 Go
+	// 直连 8000 端口伪造成别的用户。
+	InternalToken string
 }
 
 // MinioConf MinIO 连接配置。
@@ -42,7 +59,7 @@ type MinioConf struct {
 // 对应 etc/learningplatform-api.yaml 里的 Upload 段。
 type UploadConf struct {
 	MaxCoverBytes int64 // 封面原图大小上限（默认 5MB）
-	MaxVideoBytes int64 // 单个视频大小上限（默认 500MB）
+	MaxVideoBytes int64 // 单个视频大小上限（默认 800MB，也是全平台单文件硬上限）
 	// DailyQuotaBytesPerUser 每个用户每日上传总量上限（字节），0 = 不限制。
 	// 防的是"账号被盗后把对象存储灌满"：按用户 + 自然日计数（Redis，48h TTL）。
 	DailyQuotaBytesPerUser int64

@@ -27,6 +27,6 @@ func doSigninHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			class.WriteBizError(w, err)
 			return
 		}
-		httpx.WriteJson(w, http.StatusOK, map[string]string{"message": "绛惧埌鎴愬姛"})
+		httpx.WriteJson(w, http.StatusOK, map[string]string{"message": "签到成功"})
 	}
 }

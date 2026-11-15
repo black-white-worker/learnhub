@@ -66,7 +66,7 @@ func ResourcePreviewHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		// 2. 找到资源
 		c, err := course.Store.GetCourse(req.CourseId)
 		if err != nil {
-			courseError(r, w, course.ErrNotFound("课程不存在"))
+			courseError(r, w, course.CourseLookupError(req.CourseId, err))
 			return
 		}
 		var res *course.Resource

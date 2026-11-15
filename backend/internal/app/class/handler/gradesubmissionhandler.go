@@ -27,6 +27,6 @@ func gradeSubmissionHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			class.WriteBizError(w, err)
 			return
 		}
-		httpx.WriteJson(w, http.StatusOK, map[string]string{"message": "鎵规敼鎴愬姛"})
+		httpx.WriteJson(w, http.StatusOK, map[string]string{"message": "批改成功"})
 	}
 }

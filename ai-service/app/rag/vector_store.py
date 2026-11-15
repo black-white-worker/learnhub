@@ -39,10 +39,16 @@ class ChromaStore(VectorStore):
             return
         coll = self._coll(course_id)
         embeddings = embed_batch(chunks)
-        # 内容哈希做 ID，幂等：同一内容重复写不产生重复切片
+        # ID 必须含 resource_id + 切片序号：旧版只用「课程:文本」做哈希，
+        # 同一课程里两段相同文字、或不同资源引用同一段文字会互相覆盖，
+        # 切片数悄悄变少；也让 delete_by_resource 的「先删后写」有稳定可辨的粒度。
         ids = [
-            hashlib.md5(f"{course_id}:{ch}".encode()).hexdigest()[:16]
-            for ch in chunks
+            hashlib.md5(
+                (f"{course_id}:"
+                 f"{(metadatas[i] if i < len(metadatas) else {}).get('resource_id', '')}"
+                 f":{i}:{ch}").encode()
+            ).hexdigest()[:24]
+            for i, ch in enumerate(chunks)
         ]
         coll.upsert(
             ids=ids,

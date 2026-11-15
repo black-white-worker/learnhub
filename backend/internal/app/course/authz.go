@@ -1,10 +1,13 @@
 package course
 
 import (
+	"errors"
 	"net/http"
 
 	"learningplatform/internal/domain/authz"
 	"learningplatform/internal/model"
+
+	"github.com/zeromicro/go-zero/core/logx"
 )
 
 // BizError 课程模块的业务错误：携带 HTTP 状态码，交给 response.WriteError 输出。
@@ -30,6 +33,25 @@ func ErrBadRequest(msg string) *BizError {
 }
 func ErrUnauthorized() *BizError {
 	return &BizError{Code: http.StatusUnauthorized, Msg: "未登录"}
+}
+func ErrInternal(msg string) *BizError {
+	return &BizError{Code: http.StatusInternalServerError, Msg: msg}
+}
+
+// ErrCourseNotFound 表示"库里确实没有这门课"，与"查库失败"严格区分。
+var ErrCourseNotFound = errors.New("课程不存在")
+
+// CourseLookupError 把 Store.GetCourse 的错误翻译成对外的业务错误。
+//
+// 只有 ErrCourseNotFound 才是 404；连接失败、扫描失败等一律 500 并落日志。
+// 改造前这里（以及各 logic 层）把任何错误都改写成"课程不存在"，
+// 于是 go-zero 的 scan 报错在日志里查不到任何痕迹，排查绕了一大圈。
+func CourseLookupError(courseId int, err error) error {
+	if errors.Is(err, ErrCourseNotFound) {
+		return ErrNotFound("课程不存在")
+	}
+	logx.Errorf("读取课程 %d 失败: %v", courseId, err)
+	return ErrInternal("课程读取失败，请稍后重试")
 }
 
 // actorOf 用登录会话构造授权主体。
@@ -59,7 +81,7 @@ func Authorize(courseId int, u *model.SessionUser, cap authz.Capability) error {
 func AuthorizeAs(username, role string, courseId int, cap authz.Capability) error {
 	c, err := Store.GetCourse(courseId)
 	if err != nil {
-		return ErrNotFound("课程不存在")
+		return CourseLookupError(courseId, err)
 	}
 	actor := authz.Actor{Username: username, Role: role}
 	if err := actor.Require(cap, authz.Resource{OwnerUsername: c.CreatedBy}); err != nil {

@@ -7,8 +7,9 @@
 #   frontend/dist                            （本机 npm run build 的静态文件）
 #   backend/deploy/sql/migration             （Flyway 迁移 SQL）
 #
-# 这里只做六件事：
+# 这里只做七件事：
 #   0) 闸门：可用内存 / Docker 数据盘不够就直接拒绝部署（基础镜像那步最吃盘）
+#   0.5) 启动本栈独立中间件 lp-infra（mysql/redis/minio，幂等：已运行则不重建）
 #   1) 确保运行基础镜像 learningplatform-backend-base:v2 存在（LibreOffice + ffmpeg，只建一次）
 #   2) docker compose build lp-backend lp-frontend —— 只 COPY 产物，通常 10~30 秒
 #   3) docker image prune -f —— 清掉重建后留下的 <none> 悬空镜像（不删在用的、不删基础镜像）
@@ -32,6 +33,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
 ENV_FILE="${ENV_FILE:-.env.prod}"
 COMPOSE=(docker compose -f docker-compose.server.yml -f docker-compose.artifact.yml --env-file "$ENV_FILE")
+INFRA_COMPOSE=(docker compose -f docker-compose.infra.yml --env-file "$ENV_FILE")
 BASE_IMAGE="${BACKEND_RUNTIME_IMAGE:-learningplatform-backend-base:v2}"
 MODE="${1:-up}"
 
@@ -57,7 +59,7 @@ latest_backup() {
   local latest
   latest=$(ls -1 "${BACKUP_DIR:-/var/backups/learningplatform}"/learningplatform-*.sql.gz 2>/dev/null | tail -n 1)
   if [ -n "$latest" ]; then
-    printf '%s\n    还原：gunzip -c %s | docker exec -i -e MYSQL_PWD=... infra-mysql mysql -uroot %s\n' \
+    printf '%s\n    还原：gunzip -c %s | docker exec -i -e MYSQL_PWD=... lp-mysql mysql -uroot %s\n' \
       "$latest" "$latest" "${DB_NAME_BACKUPED:-learningplatform}"
   else
     printf '（本次没有备份，BACKUP_DIR=%s 下没有 dump 文件）\n' "${BACKUP_DIR:-/var/backups/learningplatform}"
@@ -86,7 +88,7 @@ if [ "$MODE" != "build" ]; then
     if [ "$AVAIL_MB" -lt "$MIN_FREE_MB" ]; then
       echo
       echo "[x] 可用内存只有 ${AVAIL_MB}M。本栈的 LibreOffice 预览一跑就是几百 M，" >&2
-      echo "    先把内存留给 videonest 和共享 MySQL：docker stop hp-backend hp-frontend" >&2
+      echo "    先停别栈应用层腾内存（中间件已各自独立，别动 *-mysql/*-minio）：docker stop hp-backend hp-frontend vn-backend vn-frontend" >&2
       echo "    确认无风险后跳过：MIN_FREE_MB=0 bash $0" >&2
       exit 1
     fi
@@ -106,6 +108,25 @@ if [ "$MODE" != "build" ]; then
   fi
 fi
 
+
+# ---- 0.5) 确保本栈独立中间件在跑（幂等：已运行则不重建）----
+# 中间件已从共享 lp-infra 拆到本仓库 docker-compose.infra.yml（项目名 learningplatform-infra，
+# 容器 lp-mysql / lp-redis / lp-minio，网络 lp-shared 由它创建）。卷命名空间 learningplatform-infra_*，
+# 与旧 lp-infra_* 分开，旧卷保留作回滚备份。备份步骤（4）依赖 lp-mysql 在跑，所以放在它前面。
+if [ "$MODE" != "build" ]; then
+  [ -f docker-compose.infra.yml ] || die "docker-compose.infra.yml 不存在，请在本机先跑 scripts/deploy.ps1 上传"
+  echo "==> 启动 lp-infra 独立中间件（幂等）"
+  "${INFRA_COMPOSE[@]}" up -d
+  for n in lp-mysql lp-redis lp-minio; do
+    s=missing
+    for _ in $(seq 1 40); do
+      s=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$n" 2>/dev/null || echo missing)
+      if [ "$s" = healthy ]; then break; fi
+      sleep 3
+    done
+    if [ "$s" = healthy ]; then echo "    $n healthy"; else echo "[!] $n 未 healthy，看 docker logs $n" >&2; fi
+  done
+fi
 
 # ---- 1) 运行基础镜像（LibreOffice + 字体 + ffmpeg），只建一次 ----
 
@@ -202,15 +223,15 @@ if [ "$MODE" != "build" ]; then
       echo "[x] $ENV_FILE 里找不到 MYSQL_ROOT_PASSWORD，无法备份。" >&2
       echo "    确认可以跳过备份：SKIP_DB_BACKUP=1 bash $0" >&2
       exit 1
-    elif ! docker ps --format '{{.Names}}' | grep -qx 'infra-mysql'; then
-      echo "[!] infra-mysql 未在运行，跳过备份（继续部署，但本次没有可回滚的快照）" >&2
+    elif ! docker ps --format '{{.Names}}' | grep -qx 'lp-mysql'; then
+      echo "[!] lp-mysql 未在运行，跳过备份（继续部署，但本次没有可回滚的快照）" >&2
     else
       mkdir -p "$BACKUP_DIR" || die "备份目录 $BACKUP_DIR 建不出来（换 BACKUP_DIR 或先清盘）"
       STAMP=$(date +%Y%m%d-%H%M%S)
       DUMP_FILE="$BACKUP_DIR/learningplatform-${STAMP}.sql.gz"
       echo "==> 备份 ${DB_NAME} -> ${DUMP_FILE}"
       # 密码经 MYSQL_PWD 传入，不落 argv（否则 docker inspect / ps 能看到）
-      if docker exec -i -e MYSQL_PWD="$MYSQL_ROOT_PW" infra-mysql \
+      if docker exec -i -e MYSQL_PWD="$MYSQL_ROOT_PW" lp-mysql \
           mysqldump -uroot --single-transaction --quick --routines --triggers \
                     --databases "$DB_NAME" 2>/tmp/lp-dump.err | gzip > "$DUMP_FILE"; then
         BYTES=$(wc -c < "$DUMP_FILE" | tr -d ' ')
@@ -254,7 +275,7 @@ for _ in $(seq 1 40); do
       echo "[!] lp-backend unhealthy，最近日志：" >&2
       docker logs --tail 80 lp-backend >&2 || true
       echo >&2
-      echo "    本栈最常见的不健康原因：共享中间件没起（infra-mysql / infra-redis / infra-minio），" >&2
+      echo "    本栈最常见的不健康原因：本栈独立中间件没起（lp-mysql / lp-redis / lp-minio），" >&2
       echo "    以及 flyway 迁移失败导致后端连不上预期表结构。" >&2
       echo "    要退回上一版：$(latest_backup)" >&2
       exit 1

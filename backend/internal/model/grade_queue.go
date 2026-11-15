@@ -25,7 +25,9 @@ type SubmissionQueueRow struct {
 	Score        sql.NullInt64 `db:"score" json:"-"`
 	AutoScore    sql.NullInt64 `db:"auto_score" json:"-"`
 	Comment      string        `db:"comment" json:"comment"`
-	SubmittedAt  time.Time     `db:"submitted_at" json:"submittedAt"`
+	// QuestionScores 老师逐题最终评分 JSON（qid → 分数），MarshalJSON 输出对象或 null
+	QuestionScores string    `db:"question_scores" json:"-"`
+	SubmittedAt    time.Time `db:"submitted_at" json:"submittedAt"`
 }
 
 // MarshalJSON 把空的老师分数输出成 null，前端据此判断"还没批"。
@@ -42,10 +44,11 @@ func (s *SubmissionQueueRow) MarshalJSON() ([]byte, error) {
 		auto = &v
 	}
 	return json.Marshal(&struct {
-		Score     *int `json:"score"`
-		AutoScore *int `json:"autoScore"`
+		Score          *int            `json:"score"`
+		AutoScore      *int            `json:"autoScore"`
+		QuestionScores json.RawMessage `json:"questionScores"`
 		*Alias
-	}{Score: score, AutoScore: auto, Alias: (*Alias)(s)})
+	}{Score: score, AutoScore: auto, QuestionScores: jsonObjectOrNull(s.QuestionScores), Alias: (*Alias)(s)})
 }
 
 // ListSubmissionQueue 某作业的全部提交，未批的排在前面（老师先处理待批的）。
@@ -53,7 +56,7 @@ func (m *ClassModel) ListSubmissionQueue(assignmentId int64) ([]*SubmissionQueue
 	var rows []*SubmissionQueueRow
 	err := m.conn.QueryRowsCtx(context.Background(), &rows, `
 		SELECT s.id, s.assignment_id, s.user_id, u.username, s.content, s.answers, s.file_url,
-		       s.score, s.auto_score, s.comment, s.submitted_at
+		       s.score, s.auto_score, s.comment, s.question_scores, s.submitted_at
 		  FROM assignment_submissions s
 		  JOIN users u ON u.id = s.user_id
 		 WHERE s.assignment_id = ?

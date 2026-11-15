@@ -251,16 +251,24 @@ type InitMultipartResponse struct {
 	MinPartSize int64  `json:"minPartSize"` // 除最后一片外，每片最小 5MB（MinIO 限制）
 }
 
-// SignPartRequest 给某一片签直传 URL。
-type SignPartRequest struct {
-	UploadID   string `json:"uploadId"`
-	PartNumber int    `json:"partNumber"` // 从 1 开始
+// SignPartsRequest 批量给若干片签直传 URL。
+// 一次一批而不是一次一片：1GB 视频有 200 片，一片一个请求要多烧 200 次往返。
+// 签名本身是本地 HMAC（不碰 MinIO），批量签几乎零代价。
+type SignPartsRequest struct {
+	UploadID    string `json:"uploadId"`
+	PartNumbers []int  `json:"partNumbers"` // 一次最多 maxSignBatch 片，片号从 1 开始
 }
 
-// SignPartResponse 返回预签名 PUT URL，前端直接 PUT 分片字节到这个 URL。
-type SignPartResponse struct {
-	URL        string `json:"url"`
+// SignedPart 一片的直传地址。
+type SignedPart struct {
 	PartNumber int    `json:"partNumber"`
+	URL        string `json:"url"`
+}
+
+// SignPartsResponse 批量签名结果 + URL 有效期，前端据此提前重签。
+type SignPartsResponse struct {
+	Parts    []SignedPart `json:"parts"`
+	ExpireIn int          `json:"expireIn"` // 秒
 }
 
 // CompleteMultipartRequest 合并分片。
@@ -278,4 +286,80 @@ type CompleteMultipartResponse struct {
 // AbortMultipartRequest 取消分片上传。
 type AbortMultipartRequest struct {
 	UploadID string `json:"uploadId"`
+}
+
+// ===== 断点续传：查询会话已上传的分片 =====
+
+// MultipartStatusRequest 查询分片会话进度。
+type MultipartStatusRequest struct {
+	UploadID string `json:"uploadId"`
+}
+
+// UploadedPart 一个已经躺在 MinIO 里的分片。
+type UploadedPart struct {
+	PartNumber int   `json:"partNumber"`
+	Size       int64 `json:"size"` // 字节，前端拿它和预期分片大小比对，不一致就重传该片
+}
+
+// MultipartStatusResponse 会话状态 + 已完成分片清单。
+// 前端刷新页面/断网重连后先调这里，再决定从第几片继续传。
+type MultipartStatusResponse struct {
+	UploadID  string         `json:"uploadId"`
+	Status    string         `json:"status"` // init/completed/aborted/expired
+	CourseId  int            `json:"courseId"`
+	FileName  string         `json:"fileName"`
+	FileSize  int64          `json:"fileSize"`
+	ChunkSize int64          `json:"chunkSize"` // 会话建立时的分片大小
+	Uploaded  int64          `json:"uploaded"`  // 已完成分片的字节合计
+	Parts     []UploadedPart `json:"parts"`     // 按 partNumber 升序
+	ExpireAt  string         `json:"expireAt"`  // 会话作废时间（RFC3339）
+	Resumable bool           `json:"resumable"` // 还能不能接着传（false = 前端该重新 init）
+}
+
+// ===== 视频后处理（faststart）=====
+
+// ReprocessVideoRequest 手工重试失败的视频后处理。
+type ReprocessVideoRequest struct {
+	CourseId int `path:"courseId"`
+	VideoId  int `path:"videoId"`
+}
+
+// ReprocessVideoResponse 重试受理结果：状态回到 pending，前端立刻改徽标。
+type ReprocessVideoResponse struct {
+	CourseId      int    `json:"courseId"`
+	VideoId       int    `json:"videoId"`
+	ProcessStatus string `json:"processStatus"`
+}
+
+// ===== 知识库资料清单（内部接口，GET /api/internal/course/:courseId/kb-manifest）=====
+//
+// 为什么要有这个接口：AI 答疑的正文来自「课程资源」，而 resources 的唯一对外口径
+// 就是课程详情页那份列表（/api/course/resources/:courseId）。ai-service 如果自己
+// 直连 MySQL 再查一次，等于把口径复制了一份 —— 私有桶预签名、类型映射、资源删除
+// 只要有一处改动，两边就会对不上（线上就出现过「页面有讲义、AI 却说没有资料」）。
+// 所以灌库一律向 Go 要这份清单，字段名对齐 ai-service 的 dict（下划线风格）。
+
+// KbManifestRequest 路径参数：课程 id。
+type KbManifestRequest struct {
+	CourseId int `path:"courseId"`
+}
+
+// KbManifestItem 一份可灌库的资料元信息（讲义或视频）。
+type KbManifestItem struct {
+	Id   int    `json:"id"`
+	Name string `json:"name"`
+	// Url 与页面看到的一致：私有桶下是预签名地址，ai-service 直接 GET 就能取到文件
+	Url        string `json:"url"`
+	ObjectName string `json:"object_name"` // MinIO 对象名，私有桶可用 SDK 直取
+	Type       string `json:"type"`        // pdf/doc/docx/ppt/pptx；视频固定 video
+	Size       int64  `json:"size"`
+	UploadedAt string `json:"uploaded_at,omitempty"`
+}
+
+// KbManifestResponse 一门课的全部资料清单。
+type KbManifestResponse struct {
+	CourseId   int              `json:"course_id"`
+	CourseName string           `json:"course_name"`
+	Resources  []KbManifestItem `json:"resources"` // 讲义（灌库正文来源）
+	Videos     []KbManifestItem `json:"videos"`    // 课程视频（正文需 ASR，先给标题清单）
 }

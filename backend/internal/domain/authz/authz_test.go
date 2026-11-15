@@ -69,6 +69,44 @@ func TestCan_ClassScoped(t *testing.T) {
 	}
 }
 
+// 断言：删班是"建班人专属"能力，班内其他老师不能删。
+//
+// 这条规则跟 ClassManage 刻意分开：同班老师可以发公告、批作业、踢学生，
+// 但不该能把整个班（连同别人一学期的成绩）删掉。
+func TestCan_ClassDelete(t *testing.T) {
+	owner := Actor{UserId: 1, Username: "alice", Role: "teacher", ClassRole: "teacher"}
+	peerTeacher := Actor{UserId: 2, Username: "bob", Role: "teacher", ClassRole: "teacher"}
+	outsider := Actor{UserId: 3, Username: "carol", Role: "teacher"}
+	student := Actor{UserId: 4, Username: "stu", Role: "student", ClassRole: "student"}
+	admin := Actor{UserId: 5, Username: "root", Role: "admin"}
+
+	res := Resource{OwnerUsername: "alice", ClassRole: "teacher"}
+	cases := []struct {
+		name string
+		act  Actor
+		want bool
+	}{
+		{"建班老师可以删自己的班", owner, true},
+		{"同班另一位老师不能删", peerTeacher, false},
+		{"不在班里的老师不能删", outsider, false},
+		{"学生不能删班", student, false},
+		{"管理员可以删任何班", admin, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := c.act.Can(ClassDelete, res); got != c.want {
+				t.Fatalf("Can(ClassDelete)=%v，期望 %v", got, c.want)
+			}
+		})
+	}
+
+	// 老数据 created_by 为空时不能误判：空用户名不算创建者，只有管理员能删
+	empty := Resource{OwnerUsername: ""}
+	if owner.Can(ClassDelete, empty) {
+		t.Fatal("created_by 为空时不应把任何老师当创建者")
+	}
+}
+
 // 断言：未声明的能力 fail-closed。
 func TestCan_UnknownCapabilityDenied(t *testing.T) {
 	a := Actor{Role: "teacher"}

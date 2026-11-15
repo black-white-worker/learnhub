@@ -25,7 +25,8 @@ import (
 // 默认限制：普通 JSON 接口 1MB，足够覆盖出题、交卷等最大载荷。
 const (
 	DefaultBodyLimit = 1 << 20 // 1MB
-	// UploadBodyLimit 大文件上传上限（视频 500MB × 多个 + multipart 开销）。
+	// UploadBodyLimit 表单上传请求体上限（单个视频最大 800MB + multipart 开销）。
+	// 更大的视频前端走分片直传 MinIO，不经过 API 请求体。
 	UploadBodyLimit = 1 << 30 // 1GB
 )
 

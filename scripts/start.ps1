@@ -339,13 +339,12 @@ if (-not $NoBrowser) {
     }
 }
 
-# 8. 清理 24 小时前的 Docker 构建缓存（保留近 24 小时的缓存加速当天的重建）
+# 8. 清理 7 天前的 Docker 构建缓存（保留近一周的缓存加速重建）
 # 说明：不要用 docker builder prune -f 全清——那样下次代码改动重建时要重新
-# 下载基础镜像 + 重装依赖，反而更慢。实测 7 天窗口清不动（缓存条目都是
-# 最近 7 天内创建的），24 小时窗口最合适：每次启动清掉"昨天及更早"的缓存，
-# 让缓存量锁死在"最近一天的量"，不会无限堆积。
-Write-Log "清理 24 小时前的构建缓存（保留当日构建缓存加速）..."
-$ec = Invoke-DockerCmd builder prune -f --filter until=24h
+# 下载基础镜像 + 重装依赖，反而更慢。重依赖（LibreOffice 等）已固化进带 tag 的
+# base 镜像、不受清缓存影响，这里只清 Go/npm 等构建缓存，7 天窗口足够控磁盘。
+Write-Log "清理 7 天前的构建缓存（保留近一周构建缓存加速）..."
+$ec = Invoke-DockerCmd builder prune -f --filter until=168h
 if ($ec -ne 0) {
     Write-Log "构建缓存清理失败（不影响服务运行，可忽略）" -Level Warn
 }

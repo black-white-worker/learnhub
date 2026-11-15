@@ -45,6 +45,9 @@ func RegisterRoutes(server *rest.Server, serverCtx *svc.ServiceContext) {
 		{Method: http.MethodPost, Path: "/api/exam/:id/draft", Handler: saveDraftHandler(serverCtx)},
 		// 老师手批
 		{Method: http.MethodPost, Path: "/api/exam/submission/:sid/grade", Handler: gradeHandler(serverCtx)},
+		// 主观题 AI 初评（复用作业的批改链路；回调共用作业的 ai-callback 入口）
+		{Method: http.MethodPost, Path: "/api/exam/submission/:sid/ai-grade", Handler: examAiGradeTriggerHandler(serverCtx)},
+		{Method: http.MethodGet, Path: "/api/exam/submission/:sid/ai-grade", Handler: examAiGradeGetHandler(serverCtx)},
 		// 考试中的切屏/违纪上报（服务端累加，老师端可见）
 		{Method: http.MethodPost, Path: "/api/exam/:id/violation", Handler: violationHandler(serverCtx)},
 	}

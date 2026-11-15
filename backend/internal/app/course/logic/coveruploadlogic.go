@@ -41,7 +41,7 @@ func (l *CoverUploadLogic) UploadCover(req *course.UploadCoverRequest) (resp *co
 	)
 	// 1. 课程必须存在
 	if _, err := course.Store.GetCourse(req.CourseId); err != nil {
-		return nil, err
+		return nil, course.CourseLookupError(req.CourseId, err)
 	}
 
 	// 2. 对象存储必须可用（启动时未连上 MinIO 则为 nil）

@@ -36,6 +36,12 @@ const (
 	ClassManage Capability = "class.manage"
 	// ClassCreate 创建班级（老师 / 管理员）
 	ClassCreate Capability = "class.create"
+	// ClassDelete 删除整个班级（仅班级创建者 / 管理员）
+	//
+	// 为什么不是 ClassManage：删班会把全班的作业、考试、成员、成绩一起带走，
+	// 同班的第二位老师只是协作者，不该有这种一票否决权。只有建班人能删，
+	// 其余人要走管理员（建班人离职/失联的兜底路径）。
+	ClassDelete Capability = "class.delete"
 
 	// AssignmentManage 作业出题 / 改作业设置（班内老师 / 管理员）
 	AssignmentManage Capability = "assignment.manage"
@@ -105,6 +111,10 @@ func (a Actor) Can(cap Capability, res Resource) bool {
 
 	case CourseEdit, CourseDelete, CourseUpload, CourseResourceDelete:
 		// 课程属于个人资产：只有创建者本人可改，其余老师也不能动别人的课
+		return a.isOwner(res)
+
+	case ClassDelete:
+		// 班级同理：只有建班老师本人可删，班内其他老师与全局老师都不行
 		return a.isOwner(res)
 
 	case ClassManage, AssignmentManage, AssignmentGrade, ExamManage, ExamGrade, GradeViewAll:

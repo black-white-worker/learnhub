@@ -2,8 +2,24 @@
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { createCourse, fetchCourseList, uploadCourseCover, uploadCourseVideos } from '../api/index.js'
+import {
+  createCourse,
+  fetchCourseList,
+  uploadCourseCover,
+  uploadCourseVideos,
+  initMultipartUpload,
+  signMultipartParts,
+  completeMultipartUpload,
+  abortMultipartUpload,
+  fetchMultipartUploadStatus,
+} from '../api/index.js'
 import { uploadCoverFlow, uploadVideosFlow, createCourseFlow } from '../utils/courseCreateFlow.js'
+import {
+  applyProgressEvent,
+  newProgressState,
+  progressLine,
+  resetProgressState,
+} from '../utils/uploadProgress.js'
 
 const router = useRouter()
 const formRef = ref(null)
@@ -55,11 +71,27 @@ const videoFiles = ref([])    // 待上传的视频文件列表（File 对象数
 const videoUploading = ref(false)
 const videoResult = ref([])   // 上传成功后的视频列表 [{id, name, url, size, uploadedAt}]
 const videoUploadRef = ref(null) // el-upload 组件引用，用于上传后清空已选文件
+// 上传进度：表单直传和分片直传都往这里汇报（字节进度封顶 99%，服务端回包才 100）
+// 三个入口各自一份状态，点了哪个按钮就看哪条进度，不会互相盖掉。
+const coverProgress = reactive(newProgressState())
+const videoProgress = reactive(newProgressState())
+const submitProgress = reactive(newProgressState())
 
 // ===== 传给流程函数的接口与状态容器 =====
 // 状态容器持有各 ref 的引用，流程函数内部直接改 .value，
 // 组件里的变量名保持原样（createdId / coverResult / videoResult ...）。
-const api = { createCourse, fetchCourseList, uploadCourseCover, uploadCourseVideos }
+// 分片直传那几个方法也要挂在 api 上：流程函数只认这一个入口。
+const api = {
+  createCourse,
+  fetchCourseList,
+  uploadCourseCover,
+  uploadCourseVideos,
+  initMultipartUpload,
+  signMultipartParts,
+  completeMultipartUpload,
+  abortMultipartUpload,
+  fetchMultipartUploadStatus,
+}
 const session = {
   createdId,
   createdName,
@@ -79,6 +111,7 @@ async function handleCreate() {
   }
 
   loading.value = true
+  resetProgressState(submitProgress)
   const result = await createCourseFlow(
     api,
     form,
@@ -89,13 +122,19 @@ async function handleCreate() {
       coverResult,
       videoResult,
     },
+    {
+      // 兜底上传的封面和视频共用一条进度，靠 file 标签区分是什么在传
+      onProgress: (p) => applyProgressEvent(submitProgress, p),
+    },
   )
   loading.value = false
 
   if (result.ok) {
+    // 传完保留进度条，让用户看到"已提交，服务器排队转码中"再跳转
     ElMessage.success('课程创建成功，正在跳转课程列表')
     setTimeout(() => router.push('/courses'), 1000)
   } else {
+    submitProgress.phase = ''
     // 失败留在页面，提示后端返回的具体错误（如"课程名称已存在"）
     ElMessage.error(result.error)
   }
@@ -105,6 +144,7 @@ async function handleCreate() {
 function onCoverChange(file) {
   coverFile.value = file.raw
   coverResult.value = null // 换了文件后旧结果作废
+  coverProgress.phase = '' // 新文件还没传，别留着上一条"上传完成"
 }
 
 async function handleUploadCover() {
@@ -114,13 +154,17 @@ async function handleUploadCover() {
     return
   }
   coverUploading.value = true
+  resetProgressState(coverProgress)
   // 课程未创建时流程内部会用当前表单数据自动创建，再上传封面
-  const result = await uploadCoverFlow(api, form, session, coverFile.value)
+  const result = await uploadCoverFlow(api, form, session, coverFile.value, {
+    onProgress: (p) => applyProgressEvent(coverProgress, p),
+  })
   coverUploading.value = false
 
   if (result.ok) {
     ElMessage.success('封面上传成功，可继续上传视频')
   } else {
+    coverProgress.phase = ''
     // 失败留在页面，提示对应错误（可能是创建失败或上传失败）
     ElMessage.error(result.error)
   }
@@ -131,6 +175,7 @@ function onVideosChange(file, fileList) {
   // fileList 是 el-upload 内部维护的列表，取每个的 .raw 才是真正的 File 对象
   videoFiles.value = fileList.map((f) => f.raw)
   videoResult.value = []
+  videoProgress.phase = '' // 新文件还没传，别留着上一条"排队转码中"
 }
 
 async function handleUploadVideos() {
@@ -140,17 +185,22 @@ async function handleUploadVideos() {
     return
   }
   videoUploading.value = true
+  resetProgressState(videoProgress)
   // 课程未创建时流程内部会用当前表单数据自动创建，再上传视频
-  const result = await uploadVideosFlow(api, form, session, videoFiles.value)
+  const result = await uploadVideosFlow(api, form, session, videoFiles.value, {
+    onProgress: (p) => applyProgressEvent(videoProgress, p),
+  })
   videoUploading.value = false
 
   if (result.ok) {
+    // 保留进度条到"排队转码中"：字节传完不代表转码完了，这行文案要说给用户看
     ElMessage.success(`成功上传 ${result.count} 个视频`)
     // 上传成功后清空"待上传"列表和 el-upload 内部文件列表，
     // 否则下次再选新文件时，旧文件会被 el-upload 一起带上、重复上传
     videoFiles.value = []
     if (videoUploadRef.value) videoUploadRef.value.clearFiles()
   } else {
+    videoProgress.phase = ''
     // 失败留在页面，提示对应错误
     ElMessage.error(result.error)
   }
@@ -203,6 +253,13 @@ function formatSize(bytes) {
             上传封面
           </el-button>
         </el-form-item>
+        <!-- 传完不收起：停在"上传完成"，换文件时才清 -->
+        <el-form-item v-if="coverUploading || coverProgress.phase">
+          <div class="video-progress">
+            <el-progress :percentage="coverProgress.percent" :stroke-width="10" />
+            <span class="video-progress-text">{{ progressLine(coverProgress) }}</span>
+          </div>
+        </el-form-item>
         <el-form-item v-if="coverResult" label="封面预览">
           <div class="cover-preview">
             <img :src="coverResult.coverThumbUrl" alt="封面缩略图" />
@@ -223,7 +280,9 @@ function formatSize(bytes) {
           >
             <el-button>选择视频文件</el-button>
             <template #tip>
-              <div class="el-upload__tip">支持一次选择多个视频（mp4 / mov 等）</div>
+              <div class="el-upload__tip">
+                支持一次选择多个视频（mp4 / mov 等），单个最大 800MB；超过 250MB 自动分片直传，中断后重选同一文件可续传
+              </div>
             </template>
           </el-upload>
         </el-form-item>
@@ -231,6 +290,14 @@ function formatSize(bytes) {
           <el-button type="success" :loading="videoUploading" @click="handleUploadVideos">
             上传视频
           </el-button>
+        </el-form-item>
+        <!-- 进度条在 percent 还是 0 时也要出现：不然刚开始那几秒像点了没反应；
+             传完也留着：最后那条"排队转码中"是异步后处理的交接提示 -->
+        <el-form-item v-if="videoUploading || videoProgress.phase">
+          <div class="video-progress">
+            <el-progress :percentage="videoProgress.percent" :stroke-width="14" />
+            <span class="video-progress-text">{{ progressLine(videoProgress) }}</span>
+          </div>
         </el-form-item>
       </el-form>
 
@@ -252,6 +319,11 @@ function formatSize(bytes) {
         <el-button type="primary" :loading="loading" style="width: 100%" @click="handleCreate">
           创建课程
         </el-button>
+      </div>
+      <!-- 选了文件却没单独上传时，最终提交会兜底上传，这里给出同样的进度 -->
+      <div v-if="submitProgress.phase" class="video-progress">
+        <el-progress :percentage="submitProgress.percent" :stroke-width="14" />
+        <span class="video-progress-text">{{ progressLine(submitProgress) }}</span>
       </div>
       <p class="tip">选择文件后点击"上传封面 / 上传视频"可单独上传并查看结果；最后点击"创建课程"，成功后跳转课程列表，失败留在本页可重试</p>
     </el-card>
@@ -289,6 +361,18 @@ function formatSize(bytes) {
 
 .create-btn-row {
   margin-top: 16px;
+}
+
+.video-progress {
+  width: 100%;
+  max-width: 460px;
+}
+
+.video-progress-text {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #9ca3af;
 }
 
 .tip {

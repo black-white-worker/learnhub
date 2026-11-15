@@ -4,6 +4,8 @@ import (
 	"errors"
 	"sort"
 	"sync"
+
+	"learningplatform/internal/model"
 )
 
 // Course 表示一门课程。
@@ -22,6 +24,7 @@ type Course struct {
 	CoverUrl      string   `json:"coverUrl"`      // 封面原图 URL（存 MinIO）
 	CoverThumbUrl string   `json:"coverThumbUrl"` // 封面缩略图 URL（320x180，存 MinIO）
 	Videos        []*Video `json:"videos"`        // 本课程已上传的视频列表
+	VideoCount    int      `json:"videoCount"`    // 视频数量（列表页卡片用，不返回完整列表）
 
 	// ===== 以下为「课程资源」分支新增 =====
 	Resources []*Resource `json:"resources"` // 本课程已上传的文档资源（PPT/Word/PDF）
@@ -42,6 +45,12 @@ type Video struct {
 	// 以下为「课程观看」分支新增
 	Faststarted bool `json:"faststarted"` // 是否已生成 moov 前置（+faststart）版本
 
+	// 后处理状态（pending/processing/done/failed，见 videoprocessor.go）。
+	// 前端靠它显示"转码中"徽标 + 失败时的重试按钮。
+	ProcessStatus string `json:"processStatus"`
+	// 最后一次失败原因，只在 failed / 重试中时有值
+	ProcessError string `json:"processError,omitempty"`
+
 	CourseId   int    `json:"-"` // 所属课程 id（内部用，不序列化）
 	ObjectName string `json:"-"` // 源视频在 MinIO 内的对象路径（内部用，不序列化）
 }
@@ -56,12 +65,17 @@ type CourseStore interface {
 	AddVideos(id int, videos []*Video) error
 	UpdateCourse(id int, name, intro, teacher string) (*Course, error)
 	DeleteCourse(id int) error
-	List() []*Course
+	// List 返回全部课程。error 非空时结果集不可信 —— 孤儿清理器据此跳过本轮，
+	// 绝不能"出错就返回空切片"：空引用集合等于"把所有文件当孤儿删掉"。
+	List() ([]*Course, error)
 	FindVideo(courseId, videoId int) (*Video, error)
 	AddResource(id int, res *Resource) error
 	ListResources(id int) ([]*Resource, error)
 	DeleteResource(id, resourceId int) error
 	MarkVideoFaststart(courseId, videoId int, newUrl string) error
+	// RequeueVideo 把处理失败的视频重新排队（前端"重试"按钮）。
+	// 视频不在 failed 状态时返回错误。
+	RequeueVideo(courseId, videoId int) error
 }
 
 // memoryStore 内存课程存储（教学版 / 测试用）：
@@ -115,13 +129,13 @@ func (s *memoryStore) AddCourse(name, intro, teacher, createdBy string) (*Course
 }
 
 // GetCourse 根据 id 获取课程（封面上传 / 视频上传前先确认课程存在）。
-// 课程不存在时返回错误。
+// 课程不存在时返回 ErrCourseNotFound，调用方据此区分 404 与真正的查询故障。
 func (s *memoryStore) GetCourse(id int) (*Course, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	c, ok := s.courses[id]
 	if !ok {
-		return nil, errors.New("课程不存在")
+		return nil, ErrCourseNotFound
 	}
 	return c, nil
 }
@@ -151,6 +165,9 @@ func (s *memoryStore) AddVideos(id int, videos []*Video) error {
 	for _, v := range videos {
 		c.nextVideoId++
 		v.Id = c.nextVideoId
+		if v.ProcessStatus == "" {
+			v.ProcessStatus = model.VideoProcessPending
+		}
 		c.Videos = append(c.Videos, v)
 	}
 	return nil
@@ -201,7 +218,10 @@ func (s *memoryStore) DeleteCourse(id int) error {
 
 // List 返回全部课程（按 id 升序），课程列表接口用（来自「课程列表」分支）。
 // map 的遍历顺序不固定，这里先收集 id 排序再取值，保证返回顺序稳定。
-func (s *memoryStore) List() []*Course {
+func (s *memoryStore) List() ([]*Course, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	ids := make([]int, 0, len(s.courses))
 	for id := range s.courses {
 		ids = append(ids, id)
@@ -212,7 +232,7 @@ func (s *memoryStore) List() []*Course {
 	for _, id := range ids {
 		result = append(result, s.courses[id])
 	}
-	return result
+	return result, nil
 }
 
 // FindVideo 在指定课程下按视频 id 找视频（课程观看分支：播放 / 进度用）。
@@ -291,8 +311,38 @@ func (s *memoryStore) MarkVideoFaststart(courseId, videoId int, newUrl string) e
 		if v.Id == videoId {
 			v.Url = newUrl
 			v.Faststarted = true
+			v.ProcessStatus = model.VideoProcessDone
+			v.ProcessError = ""
 			return nil
 		}
 	}
 	return errors.New("视频不存在")
+}
+
+// RequeueVideo 内存实现：状态机与 MySQL 实现一致，只有 failed 能重新排队。
+// 注意：内存模式没有 worker（队列在 DB 里），重排后不会有人真的去跑，
+// 这只影响不接 MySQL 的开发模式。
+func (s *memoryStore) RequeueVideo(courseId, videoId int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.courses[courseId]
+	if !ok {
+		return ErrNotFound("课程不存在")
+	}
+	for _, v := range c.Videos {
+		if v.Id != videoId {
+			continue
+		}
+		switch v.ProcessStatus {
+		case model.VideoProcessFailed:
+			v.ProcessStatus = model.VideoProcessPending
+			v.ProcessError = ""
+			return nil
+		case model.VideoProcessDone:
+			return ErrBadRequest(model.ErrVideoAlreadyDone.Error())
+		default:
+			return ErrBadRequest(model.ErrVideoNotFailed.Error())
+		}
+	}
+	return ErrNotFound("视频不存在")
 }

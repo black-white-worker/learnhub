@@ -32,7 +32,11 @@ func (l *GradeSubmissionLogic) GradeSubmission(sid int64, req *class.GradeSubmis
 	if be := class.RequireTeacher(l.svcCtx, a.ClassId, cu); be != nil {
 		return be
 	}
-	if err := l.svcCtx.ClassStore.GradeSubmission(sid, req.Score, req.Comment); err != nil {
+	scoresJSON, err := class.MarshalQuestionScores(req.QuestionScores)
+	if err != nil {
+		return err
+	}
+	if err := l.svcCtx.ClassStore.GradeSubmission(sid, req.Score, req.Comment, scoresJSON); err != nil {
 		return err
 	}
 	// 成绩册落库（对标 Canvas：分数在批改时写入，查询时只做聚合）

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"learningplatform/internal/app/class"
+	classlogic "learningplatform/internal/app/class/logic"
 	"learningplatform/internal/app/exam"
 	"learningplatform/internal/domain/authz"
 	"learningplatform/internal/domain/examrules"
@@ -98,18 +99,38 @@ func (l *ExamLogic) Detail(examId int64, cu *class.CtxUser) (interface{}, error)
 	if role == "teacher" || role == "admin" {
 		subs, _ := l.svcCtx.ExamStore.ListSubmissions(examId)
 
-		// 老师端要"逐份看答卷 + 每题得了多少分"，所以按 submission 逐个算一遍客观题得分。
-		// 改造前这里只返回题目和提交列表，前端弹窗拿不到每题分，
-		// 只能去读学生的 detail.perQuestion（老师端根本没有这个字段）→ 每道题都显示 0 分。
-		scores := buildSubmissionScores(subs, questions)
+	// 老师端要"逐份看答卷 + 每题得了多少分"，所以按 submission 逐个算一遍客观题得分。
+	// 改造前这里只返回题目和提交列表，前端弹窗拿不到每题分，
+	// 只能去读学生的 detail.perQuestion（老师端根本没有这个字段）→ 每道题都显示 0 分。
+	scores := buildSubmissionScores(subs, questions)
 
-		return map[string]interface{}{
-			"exam":             e,
-			"questions":        questions,
-			"submissions":      subs,
-			"submissionScores": scores,
-			"myRole":           role,
-		}, nil
+	// AI 初评摘要（考试主观题复用作业的批改链路，同一张建议表）。
+	// 考试记录的 assignment_id=0：作业提交和考试提交是两张表，主键可能撞号，
+	// 不按这个字段过滤会把同号作业提交的 AI 结果错挂到考试学生头上。
+	aiGrades := map[int64]*class.AiGradeView{}
+	if len(subs) > 0 {
+		ids := make([]int64, 0, len(subs))
+		for _, s := range subs {
+			ids = append(ids, s.Id)
+		}
+		if rows, err := l.svcCtx.AIGradeStore.ListBySubmissions(ids); err == nil {
+			for sid, row := range rows {
+				if row.AssignmentId == 0 {
+					aiGrades[sid] = classlogic.AiGradeViewOf(row, 0, l.svcCtx.AI.Enabled())
+				}
+			}
+		}
+	}
+
+	return map[string]interface{}{
+		"exam":             e,
+		"questions":        questions,
+		"submissions":      subs,
+		"submissionScores": scores,
+		"aiGrades":         aiGrades,
+		"aiEnabled":        l.svcCtx.AI.Enabled(),
+		"myRole":           role,
+	}, nil
 	}
 
 	sub, _ := l.svcCtx.ExamStore.GetMySubmission(examId, cu.Id)
@@ -543,7 +564,11 @@ func (l *ExamLogic) Grade(submissionId int64, req *exam.GradeReq, cu *class.CtxU
 		return class.AsBizError(err)
 	}
 
-	if err := l.svcCtx.ExamStore.GradeSubmission(submissionId, req.TeacherScore, req.Comment, cu.Id); err != nil {
+	scoresJSON, err := class.MarshalQuestionScores(req.QuestionScores)
+	if err != nil {
+		return err
+	}
+	if err := l.svcCtx.ExamStore.GradeSubmission(submissionId, req.TeacherScore, req.Comment, scoresJSON, cu.Id); err != nil {
 		return err
 	}
 	// 老师分覆盖自动分：最终成绩以老师批的为准。

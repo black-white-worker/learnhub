@@ -1,6 +1,6 @@
 """HTTP API：
 - POST /api/ai/chat          SSE 流式答疑
-其他接口：summary.py（学习总结）、generate.py（AI出题）、session.py（会话管理）。
+其他接口：generate.py（AI出题）、session.py（会话管理）。
 """
 from datetime import date
 import json

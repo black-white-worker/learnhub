@@ -137,6 +137,52 @@ func RequireTeacher(svcCtx *svc.ServiceContext, classId int64, cu *CtxUser) *Biz
 	return RequireClassTeacher(svcCtx, classId, cu, authz.ClassManage)
 }
 
+// RequireClassOwner 用于"班级本身是操作对象"的能力（目前只有 class.delete）。
+//
+// 和 RequireClassTeacher 的区别：后者的判据是"我在这个班里是不是老师"，
+// 适合改作业、发公告这类班内事务；删班要看的是"这个班是不是我建的"，
+// 资源属性来自 classes.created_by，班内角色只是佐证（得先证明你在班里）。
+// 管理员照例全放行，作为建班人离职/失联时的兜底。
+func RequireClassOwner(svcCtx *svc.ServiceContext, classId int64, cu *CtxUser, cap authz.Capability) *BizError {
+	cls, err := svcCtx.ClassStore.GetClass(classId)
+	if err != nil || cls == nil {
+		return &BizError{Code: http.StatusNotFound, Msg: "班级不存在"}
+	}
+
+	classRole := "admin"
+	if cu.Role != "admin" {
+		// 先确认在班内：全局老师也可能和这个班毫无关系，
+		// 直接拿 users.role 判会变成"任何老师都能删任何班"。
+		r, be := RequireClassMember(svcCtx, classId, cu)
+		if be != nil {
+			return be
+		}
+		classRole = r
+	}
+
+	actor := authz.Actor{UserId: cu.Id, Username: cu.Username, Role: cu.Role, ClassRole: classRole}
+	if err := actor.Require(cap, authz.Resource{ClassRole: classRole, OwnerUsername: cls.CreatedBy}); err != nil {
+		return AsBizError(err)
+	}
+	return nil
+}
+
+// QuitDenyReason 判断某班内角色能否主动退出班级，返回拒绝原因（空串=可以退出）。
+//
+// 抽成纯函数是为了让规则可测：退出接口本身要查库，
+// 但"谁能退"这条判断不该被数据库挡住才验证。
+// 学生退出只解除成员关系；老师退出会把班变成没人管的状态，
+// 正确路径是删班或移交管理员。
+func QuitDenyReason(classRole string) string {
+	switch classRole {
+	case "teacher":
+		return "老师不能退出自己任教的班级，请删除班级或由管理员处理"
+	case "admin":
+		return "管理员不是班级成员，无需退出"
+	}
+	return ""
+}
+
 // ParseIntPath 从 go-zero 路径参数取 int。
 func ParseIntPath(r *http.Request, key string) int64 {
 	if vars := pathvar.Vars(r); vars != nil {
@@ -184,4 +230,25 @@ func (e *BizError) StatusCode() int { return e.Code }
 // 历史上直接写 {"message":...}，现已统一为三层，前端拦截器按 code===0 判断成功即可。
 func WriteBizError(w http.ResponseWriter, err error) {
 	response.WriteError(w, err)
+}
+
+// MarshalQuestionScores 把老师「逐题最终评分」序列化进 question_scores 列（作业 / 考试共用）。
+//
+// 空 map 存空串而不是 "{}"：前端需要区分"没批过逐题，可以拿 AI 初评回填"和
+// "批过，且这次每道题都是 0 分" —— 存成 "{}" 两种就分不开了。
+// 负数直接拒绝：分数为负只可能是前端算错，落库后会让总分对不上。
+func MarshalQuestionScores(scores map[string]float64) (string, error) {
+	if len(scores) == 0 {
+		return "", nil
+	}
+	for qid, v := range scores {
+		if v < 0 {
+			return "", &BizError{Code: http.StatusBadRequest, Msg: "题目 " + qid + " 的分数不能为负"}
+		}
+	}
+	b, err := json.Marshal(scores)
+	if err != nil {
+		return "", &BizError{Code: http.StatusBadRequest, Msg: "逐题分数格式不正确"}
+	}
+	return string(b), nil
 }

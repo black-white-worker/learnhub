@@ -1,0 +1,75 @@
+{
+  "mode": "simple",
+  "label": "course_detail",
+  "args": {
+    "tokens": "/w/tokens.json",
+    "min-free-mb": "40",
+    "out": "/w/raw",
+    "mode": "simple",
+    "label": "course_detail",
+    "path": "/api/course/detail/5",
+    "ladder": "8,16,32,64",
+    "secs": "25",
+    "step-gap": "12"
+  },
+  "startedAt": "2026-11-09T16:11:01.196Z",
+  "finishedAt": "2026-11-09T16:11:29.054Z",
+  "steps": [
+    {
+      "concurrency": 8,
+      "startedAtWall": "2026-11-09T16:11:01.260Z",
+      "elapsedSeconds": 27.66,
+      "aborted": null,
+      "memAvailableMbEnd": 111,
+      "samples": [
+        {
+          "atSec": 7,
+          "memAvailableMb": 121,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 19,
+          "memAvailableMb": 100,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "atSec": 26,
+          "memAvailableMb": 145,
+          "canary": [
+            200,
+            200,
+            200
+          ]
+        }
+      ],
+      "requests": 4879,
+      "successful": 4855,
+      "failed": 24,
+      "successRatePercent": 99.508,
+      "requestsPerSecond": 176.42,
+      "throughputKBps": 82.64,
+      "latencyMs": {
+        "p50": 5.13,
+        "p95": 14.03,
+        "p99": 575.25,
+        "max": 8711.94
+      },
+      "statusCodes": {
+        "0": 8,
+        "200": 4855,
+        "503": 16
+      },
+      "errors": {
+        "ECONNRESET": 8
+      }
+    }
+  ]
+}
