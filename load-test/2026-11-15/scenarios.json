@@ -1,0 +1,117 @@
+{
+  "target": "http://127.0.0.1:8888",
+  "scenarios": [
+    {
+      "name": "course-list",
+      "suite": "read",
+      "method": "GET",
+      "path": "/api/course/list?page=1&pageSize=20",
+      "weight": 30
+    },
+    {
+      "name": "course-detail",
+      "suite": "read",
+      "method": "GET",
+      "path": "/api/course/detail/{{c}}",
+      "weight": 25,
+      "params": {
+        "c": [
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42,
+          43,
+          44,
+          45,
+          46,
+          47
+        ]
+      }
+    },
+    {
+      "name": "announcements",
+      "suite": "read",
+      "method": "GET",
+      "path": "/api/class/1/announcements",
+      "weight": 20,
+      "auth": true
+    },
+    {
+      "name": "assignments",
+      "suite": "read",
+      "method": "GET",
+      "path": "/api/class/1/assignments",
+      "weight": 15,
+      "auth": true
+    },
+    {
+      "name": "class-detail",
+      "suite": "read",
+      "method": "GET",
+      "path": "/api/class/1",
+      "weight": 10,
+      "auth": true
+    },
+    {
+      "name": "note-create",
+      "suite": "write",
+      "method": "POST",
+      "path": "/api/course/note",
+      "weight": 100,
+      "auth": true,
+      "body": "{\"courseId\":24,\"videoId\":18,\"timestampSeconds\":{{p}},\"content\":\"LP20261115 压测笔记 {{worker}}_{{seq}}\"}",
+      "params": {
+        "p": [
+          0,
+          30,
+          60,
+          90,
+          120,
+          150,
+          180,
+          210,
+          240,
+          270
+        ]
+      }
+    },
+    {
+      "name": "progress-save",
+      "suite": "write",
+      "method": "POST",
+      "path": "/api/course/video/progress/24/18",
+      "weight": 100,
+      "auth": true,
+      "body": "{\"position\":{{p}},\"watchedDelta\":5,\"duration\":600}",
+      "params": {
+        "p": [
+          10,
+          20,
+          30,
+          40,
+          50,
+          60,
+          70,
+          80,
+          90,
+          100
+        ]
+      }
+    }
+  ]
+}

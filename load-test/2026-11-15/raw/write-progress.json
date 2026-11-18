@@ -1,0 +1,145 @@
+{
+  "target": "http://127.0.0.1:8888/",
+  "label": "write-progress",
+  "suite": "write",
+  "scenario": "progress-save",
+  "secs": 20,
+  "ladder": [
+    4,
+    8,
+    16
+  ],
+  "startedAt": "2026-11-15T15:53:38.159Z",
+  "steps": [
+    {
+      "concurrency": 4,
+      "elapsedSeconds": 20.01,
+      "total": {
+        "requests": 10201,
+        "successful": 10201,
+        "failed": 0,
+        "successRatePercent": 100,
+        "requestsPerSecond": 509.78,
+        "throughputKBps": 26.43,
+        "latencyMs": {
+          "p50": 6.95,
+          "p95": 14.14,
+          "p99": 22.68,
+          "max": 103.06
+        },
+        "statusCodes": {
+          "200": 10201
+        },
+        "errors": {}
+      },
+      "scenarios": {
+        "progress-save": {
+          "requests": 10201,
+          "successful": 10201,
+          "failed": 0,
+          "successRatePercent": 100,
+          "requestsPerSecond": 509.78,
+          "throughputKBps": 26.43,
+          "latencyMs": {
+            "p50": 6.95,
+            "p95": 14.14,
+            "p99": 22.68,
+            "max": 103.06
+          },
+          "statusCodes": {
+            "200": 10201
+          },
+          "errors": {}
+        }
+      }
+    },
+    {
+      "concurrency": 8,
+      "elapsedSeconds": 20.01,
+      "total": {
+        "requests": 12694,
+        "successful": 12694,
+        "failed": 0,
+        "successRatePercent": 100,
+        "requestsPerSecond": 634.49,
+        "throughputKBps": 32.9,
+        "latencyMs": {
+          "p50": 10.76,
+          "p95": 24.99,
+          "p99": 32.69,
+          "max": 112.55
+        },
+        "statusCodes": {
+          "200": 12694
+        },
+        "errors": {}
+      },
+      "scenarios": {
+        "progress-save": {
+          "requests": 12694,
+          "successful": 12694,
+          "failed": 0,
+          "successRatePercent": 100,
+          "requestsPerSecond": 634.49,
+          "throughputKBps": 32.9,
+          "latencyMs": {
+            "p50": 10.76,
+            "p95": 24.99,
+            "p99": 32.69,
+            "max": 112.55
+          },
+          "statusCodes": {
+            "200": 12694
+          },
+          "errors": {}
+        }
+      }
+    },
+    {
+      "concurrency": 16,
+      "elapsedSeconds": 20.01,
+      "total": {
+        "requests": 16431,
+        "successful": 16431,
+        "failed": 0,
+        "successRatePercent": 100,
+        "requestsPerSecond": 821.04,
+        "throughputKBps": 42.58,
+        "latencyMs": {
+          "p50": 17.2,
+          "p95": 35.6,
+          "p99": 50.98,
+          "max": 126.17
+        },
+        "statusCodes": {
+          "200": 16431
+        },
+        "errors": {}
+      },
+      "scenarios": {
+        "progress-save": {
+          "requests": 16431,
+          "successful": 16431,
+          "failed": 0,
+          "successRatePercent": 100,
+          "requestsPerSecond": 821.04,
+          "throughputKBps": 42.58,
+          "latencyMs": {
+            "p50": 17.2,
+            "p95": 35.6,
+            "p99": 50.98,
+            "max": 126.17
+          },
+          "statusCodes": {
+            "200": 16431
+          },
+          "errors": {}
+        }
+      }
+    }
+  ],
+  "warmup": {
+    "concurrency": 4,
+    "seconds": 8
+  }
+}

@@ -1,0 +1,476 @@
+{
+  "target": "http://127.0.0.1:8888/",
+  "label": "read",
+  "suite": "read",
+  "scenario": null,
+  "secs": 20,
+  "ladder": [
+    8,
+    16,
+    32,
+    64
+  ],
+  "startedAt": "2026-11-15T15:50:50.912Z",
+  "steps": [
+    {
+      "concurrency": 8,
+      "elapsedSeconds": 20,
+      "total": {
+        "requests": 49327,
+        "successful": 49327,
+        "failed": 0,
+        "successRatePercent": 100,
+        "requestsPerSecond": 2466.06,
+        "throughputKBps": 3730.85,
+        "latencyMs": {
+          "p50": 3.17,
+          "p95": 5,
+          "p99": 6.09,
+          "max": 11.62
+        },
+        "statusCodes": {
+          "200": 49327
+        },
+        "errors": {}
+      },
+      "scenarios": {
+        "course-list": {
+          "requests": 14687,
+          "successful": 14687,
+          "failed": 0,
+          "successRatePercent": 100,
+          "requestsPerSecond": 734.26,
+          "throughputKBps": 2625.85,
+          "latencyMs": {
+            "p50": 1.96,
+            "p95": 2.88,
+            "p99": 3.7,
+            "max": 8.76
+          },
+          "statusCodes": {
+            "200": 14687
+          },
+          "errors": {}
+        },
+        "course-detail": {
+          "requests": 12338,
+          "successful": 12338,
+          "failed": 0,
+          "successRatePercent": 100,
+          "requestsPerSecond": 616.83,
+          "throughputKBps": 369.63,
+          "latencyMs": {
+            "p50": 3.28,
+            "p95": 4.56,
+            "p99": 5.63,
+            "max": 9.68
+          },
+          "statusCodes": {
+            "200": 12338
+          },
+          "errors": {}
+        },
+        "announcements": {
+          "requests": 10148,
+          "successful": 10148,
+          "failed": 0,
+          "successRatePercent": 100,
+          "requestsPerSecond": 507.34,
+          "throughputKBps": 265.07,
+          "latencyMs": {
+            "p50": 4.33,
+            "p95": 5.83,
+            "p99": 7.1,
+            "max": 11.62
+          },
+          "statusCodes": {
+            "200": 10148
+          },
+          "errors": {}
+        },
+        "assignments": {
+          "requests": 7248,
+          "successful": 7248,
+          "failed": 0,
+          "successRatePercent": 100,
+          "requestsPerSecond": 362.36,
+          "throughputKBps": 289.46,
+          "latencyMs": {
+            "p50": 3.11,
+            "p95": 4.35,
+            "p99": 5.56,
+            "max": 9.58
+          },
+          "statusCodes": {
+            "200": 7248
+          },
+          "errors": {}
+        },
+        "class-detail": {
+          "requests": 4906,
+          "successful": 4906,
+          "failed": 0,
+          "successRatePercent": 100,
+          "requestsPerSecond": 245.27,
+          "throughputKBps": 180.84,
+          "latencyMs": {
+            "p50": 3.39,
+            "p95": 4.76,
+            "p99": 5.79,
+            "max": 10.15
+          },
+          "statusCodes": {
+            "200": 4906
+          },
+          "errors": {}
+        }
+      }
+    },
+    {
+      "concurrency": 16,
+      "elapsedSeconds": 20,
+      "total": {
+        "requests": 61449,
+        "successful": 61449,
+        "failed": 0,
+        "successRatePercent": 100,
+        "requestsPerSecond": 3071.91,
+        "throughputKBps": 4656.08,
+        "latencyMs": {
+          "p50": 5.11,
+          "p95": 7.81,
+          "p99": 9.32,
+          "max": 17.25
+        },
+        "statusCodes": {
+          "200": 61449
+        },
+        "errors": {}
+      },
+      "scenarios": {
+        "course-list": {
+          "requests": 18330,
+          "successful": 18330,
+          "failed": 0,
+          "successRatePercent": 100,
+          "requestsPerSecond": 916.34,
+          "throughputKBps": 3276.99,
+          "latencyMs": {
+            "p50": 3.56,
+            "p95": 4.82,
+            "p99": 5.68,
+            "max": 9.91
+          },
+          "statusCodes": {
+            "200": 18330
+          },
+          "errors": {}
+        },
+        "course-detail": {
+          "requests": 15390,
+          "successful": 15390,
+          "failed": 0,
+          "successRatePercent": 100,
+          "requestsPerSecond": 769.37,
+          "throughputKBps": 461.04,
+          "latencyMs": {
+            "p50": 5.33,
+            "p95": 7.12,
+            "p99": 8.62,
+            "max": 14.09
+          },
+          "statusCodes": {
+            "200": 15390
+          },
+          "errors": {}
+        },
+        "announcements": {
+          "requests": 12337,
+          "successful": 12337,
+          "failed": 0,
+          "successRatePercent": 100,
+          "requestsPerSecond": 616.74,
+          "throughputKBps": 322.22,
+          "latencyMs": {
+            "p50": 6.75,
+            "p95": 9.13,
+            "p99": 10.83,
+            "max": 17.25
+          },
+          "statusCodes": {
+            "200": 12337
+          },
+          "errors": {}
+        },
+        "assignments": {
+          "requests": 9267,
+          "successful": 9267,
+          "failed": 0,
+          "successRatePercent": 100,
+          "requestsPerSecond": 463.27,
+          "throughputKBps": 370.07,
+          "latencyMs": {
+            "p50": 5.11,
+            "p95": 6.88,
+            "p99": 8.29,
+            "max": 14.45
+          },
+          "statusCodes": {
+            "200": 9267
+          },
+          "errors": {}
+        },
+        "class-detail": {
+          "requests": 6125,
+          "successful": 6125,
+          "failed": 0,
+          "successRatePercent": 100,
+          "requestsPerSecond": 306.2,
+          "throughputKBps": 225.76,
+          "latencyMs": {
+            "p50": 5.43,
+            "p95": 7.33,
+            "p99": 8.73,
+            "max": 15.28
+          },
+          "statusCodes": {
+            "200": 6125
+          },
+          "errors": {}
+        }
+      }
+    },
+    {
+      "concurrency": 32,
+      "elapsedSeconds": 20,
+      "total": {
+        "requests": 57126,
+        "successful": 57126,
+        "failed": 0,
+        "successRatePercent": 100,
+        "requestsPerSecond": 2855.63,
+        "throughputKBps": 4328.42,
+        "latencyMs": {
+          "p50": 11.16,
+          "p95": 16.13,
+          "p99": 19.59,
+          "max": 38.15
+        },
+        "statusCodes": {
+          "200": 57126
+        },
+        "errors": {}
+      },
+      "scenarios": {
+        "course-list": {
+          "requests": 17035,
+          "successful": 17035,
+          "failed": 0,
+          "successRatePercent": 100,
+          "requestsPerSecond": 851.55,
+          "throughputKBps": 3045.29,
+          "latencyMs": {
+            "p50": 8.66,
+            "p95": 12.55,
+            "p99": 13.69,
+            "max": 23.93
+          },
+          "statusCodes": {
+            "200": 17035
+          },
+          "errors": {}
+        },
+        "course-detail": {
+          "requests": 14383,
+          "successful": 14383,
+          "failed": 0,
+          "successRatePercent": 100,
+          "requestsPerSecond": 718.98,
+          "throughputKBps": 430.85,
+          "latencyMs": {
+            "p50": 11.56,
+            "p95": 15.28,
+            "p99": 18.24,
+            "max": 26.66
+          },
+          "statusCodes": {
+            "200": 14383
+          },
+          "errors": {}
+        },
+        "announcements": {
+          "requests": 11346,
+          "successful": 11346,
+          "failed": 0,
+          "successRatePercent": 100,
+          "requestsPerSecond": 567.17,
+          "throughputKBps": 296.32,
+          "latencyMs": {
+            "p50": 13.92,
+            "p95": 18.52,
+            "p99": 22.7,
+            "max": 38.15
+          },
+          "statusCodes": {
+            "200": 11346
+          },
+          "errors": {}
+        },
+        "assignments": {
+          "requests": 8656,
+          "successful": 8656,
+          "failed": 0,
+          "successRatePercent": 100,
+          "requestsPerSecond": 432.7,
+          "throughputKBps": 345.65,
+          "latencyMs": {
+            "p50": 11.35,
+            "p95": 14.95,
+            "p99": 18.14,
+            "max": 29.28
+          },
+          "statusCodes": {
+            "200": 8656
+          },
+          "errors": {}
+        },
+        "class-detail": {
+          "requests": 5706,
+          "successful": 5706,
+          "failed": 0,
+          "successRatePercent": 100,
+          "requestsPerSecond": 285.23,
+          "throughputKBps": 210.3,
+          "latencyMs": {
+            "p50": 11.96,
+            "p95": 15.94,
+            "p99": 19.57,
+            "max": 29.49
+          },
+          "statusCodes": {
+            "200": 5706
+          },
+          "errors": {}
+        }
+      }
+    },
+    {
+      "concurrency": 64,
+      "elapsedSeconds": 20.01,
+      "total": {
+        "requests": 50229,
+        "successful": 50229,
+        "failed": 0,
+        "successRatePercent": 100,
+        "requestsPerSecond": 2510.8,
+        "throughputKBps": 3801.57,
+        "latencyMs": {
+          "p50": 25.76,
+          "p95": 29.39,
+          "p99": 32.08,
+          "max": 76.76
+        },
+        "statusCodes": {
+          "200": 50229
+        },
+        "errors": {}
+      },
+      "scenarios": {
+        "course-list": {
+          "requests": 14962,
+          "successful": 14962,
+          "failed": 0,
+          "successRatePercent": 100,
+          "requestsPerSecond": 747.91,
+          "throughputKBps": 2674.64,
+          "latencyMs": {
+            "p50": 24.16,
+            "p95": 26.64,
+            "p99": 27.85,
+            "max": 72.16
+          },
+          "statusCodes": {
+            "200": 14962
+          },
+          "errors": {}
+        },
+        "course-detail": {
+          "requests": 12604,
+          "successful": 12604,
+          "failed": 0,
+          "successRatePercent": 100,
+          "requestsPerSecond": 630.04,
+          "throughputKBps": 377.54,
+          "latencyMs": {
+            "p50": 26.12,
+            "p95": 28.88,
+            "p99": 30.76,
+            "max": 76.76
+          },
+          "statusCodes": {
+            "200": 12604
+          },
+          "errors": {}
+        },
+        "announcements": {
+          "requests": 10145,
+          "successful": 10145,
+          "failed": 0,
+          "successRatePercent": 100,
+          "requestsPerSecond": 507.12,
+          "throughputKBps": 264.95,
+          "latencyMs": {
+            "p50": 27.74,
+            "p95": 31.06,
+            "p99": 35.43,
+            "max": 76.01
+          },
+          "statusCodes": {
+            "200": 10145
+          },
+          "errors": {}
+        },
+        "assignments": {
+          "requests": 7505,
+          "successful": 7505,
+          "failed": 0,
+          "successRatePercent": 100,
+          "requestsPerSecond": 375.15,
+          "throughputKBps": 299.68,
+          "latencyMs": {
+            "p50": 25.87,
+            "p95": 28.58,
+            "p99": 30.28,
+            "max": 75.16
+          },
+          "statusCodes": {
+            "200": 7505
+          },
+          "errors": {}
+        },
+        "class-detail": {
+          "requests": 5013,
+          "successful": 5013,
+          "failed": 0,
+          "successRatePercent": 100,
+          "requestsPerSecond": 250.58,
+          "throughputKBps": 184.76,
+          "latencyMs": {
+            "p50": 26.26,
+            "p95": 29.13,
+            "p99": 32.58,
+            "max": 60.07
+          },
+          "statusCodes": {
+            "200": 5013
+          },
+          "errors": {}
+        }
+      }
+    }
+  ],
+  "warmup": {
+    "concurrency": 8,
+    "seconds": 8
+  }
+}
